@@ -1,0 +1,6 @@
+{
+  "name": "morix-ui",
+  "description": "Interface plein écran immersive morix-ui au fond 100% noir avec conteneur central interactif.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
