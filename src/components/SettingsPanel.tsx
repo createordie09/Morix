@@ -17,6 +17,14 @@ export interface SettingsPanelProps {
   onMicSensitivityChange: (val: number) => void;
   devShortcutEnabled: boolean;
   onDevShortcutEnabledChange: (enabled: boolean) => void;
+  alwaysOnTop: boolean;
+  onAlwaysOnTopChange: (enabled: boolean) => void;
+  transparentBackground: boolean;
+  onTransparentBackgroundChange: (enabled: boolean) => void;
+  autoStart?: boolean;
+  onAutoStartChange?: (enabled: boolean) => void;
+  maskedApiKey?: string;
+  onOpenApiKeyModal?: () => void;
 }
 
 const AVAILABLE_VOICES = [
@@ -39,6 +47,14 @@ export default function SettingsPanel({
   onMicSensitivityChange,
   devShortcutEnabled,
   onDevShortcutEnabledChange,
+  alwaysOnTop,
+  onAlwaysOnTopChange,
+  transparentBackground,
+  onTransparentBackgroundChange,
+  autoStart = false,
+  onAutoStartChange,
+  maskedApiKey,
+  onOpenApiKeyModal,
 }: SettingsPanelProps) {
   const [memoryCount, setMemoryCount] = useState(0);
   const [totalChars, setTotalChars] = useState(0);
@@ -383,6 +399,54 @@ export default function SettingsPanel({
             >
               Vos données, préférences et résumés de conversation sont stockés localement sur votre appareil. L'authentification distante sera proposée lors du Palier D.
             </p>
+
+            {/* Clé API Gemini locale */}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                marginTop: '6px',
+                paddingTop: '10px',
+                borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.85)', fontWeight: 500 }}>
+                  Clé API Google Gemini :
+                </span>
+                <span
+                  style={{
+                    fontSize: '0.6875rem',
+                    fontFamily: 'monospace',
+                    color: maskedApiKey ? '#86EFAC' : '#FCA5A5',
+                    fontWeight: 600,
+                  }}
+                >
+                  {maskedApiKey || 'Non configurée'}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={onOpenApiKeyModal}
+                data-testid="btn-change-api-key"
+                style={{
+                  alignSelf: 'flex-start',
+                  padding: '5px 10px',
+                  fontSize: '0.6875rem',
+                  fontWeight: 500,
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  border: '1px solid rgba(59, 130, 246, 0.3)',
+                  color: '#93C5FD',
+                  cursor: 'pointer',
+                  borderRadius: 0,
+                  transition: 'all 120ms ease',
+                }}
+              >
+                {maskedApiKey ? 'Modifier la clé API' : 'Configurer une clé API'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -491,6 +555,132 @@ export default function SettingsPanel({
                 }}
               >
                 {devShortcutEnabled ? 'Activé' : 'Désactivé'}
+              </button>
+            </div>
+
+            {/* Interrupteur Toujours au premier plan */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingTop: '8px',
+                borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.85)', fontWeight: 500 }}>
+                  Toujours au premier plan
+                </span>
+                <span style={{ fontSize: '0.6875rem', color: 'rgba(255, 255, 255, 0.4)' }}>
+                  Maintient la fenêtre par-dessus les autres
+                </span>
+              </div>
+
+              <button
+                type="button"
+                data-testid="toggle-always-on-top"
+                aria-label="Basculer toujours au premier plan"
+                onClick={() => onAlwaysOnTopChange(!alwaysOnTop)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '0.6875rem',
+                  fontWeight: 600,
+                  backgroundColor: alwaysOnTop ? 'rgba(59, 130, 246, 0.16)' : 'rgba(255, 255, 255, 0.06)',
+                  border: alwaysOnTop
+                    ? '1px solid rgba(59, 130, 246, 0.4)'
+                    : '1px solid rgba(255, 255, 255, 0.1)',
+                  color: alwaysOnTop ? '#93C5FD' : 'rgba(255, 255, 255, 0.45)',
+                  cursor: 'pointer',
+                  borderRadius: 0,
+                  transition: 'all 120ms ease',
+                }}
+              >
+                {alwaysOnTop ? 'Activé' : 'Désactivé'}
+              </button>
+            </div>
+
+            {/* Interrupteur Fond transparent */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingTop: '8px',
+                borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.85)', fontWeight: 500 }}>
+                  Fond transparent
+                </span>
+                <span style={{ fontSize: '0.6875rem', color: 'rgba(255, 255, 255, 0.4)' }}>
+                  Affiche l'orbe directement sur le bureau
+                </span>
+              </div>
+
+              <button
+                type="button"
+                data-testid="toggle-transparent-bg"
+                aria-label="Basculer fond transparent"
+                onClick={() => onTransparentBackgroundChange(!transparentBackground)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '0.6875rem',
+                  fontWeight: 600,
+                  backgroundColor: transparentBackground ? 'rgba(34, 197, 94, 0.16)' : 'rgba(255, 255, 255, 0.06)',
+                  border: transparentBackground
+                    ? '1px solid rgba(34, 197, 94, 0.4)'
+                    : '1px solid rgba(255, 255, 255, 0.1)',
+                  color: transparentBackground ? '#86EFAC' : 'rgba(255, 255, 255, 0.45)',
+                  cursor: 'pointer',
+                  borderRadius: 0,
+                  transition: 'all 120ms ease',
+                }}
+              >
+                {transparentBackground ? 'Activé' : 'Désactivé'}
+              </button>
+            </div>
+
+            {/* Interrupteur Lancement au démarrage */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingTop: '8px',
+                borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.85)', fontWeight: 500 }}>
+                  Lancement au démarrage
+                </span>
+                <span style={{ fontSize: '0.6875rem', color: 'rgba(255, 255, 255, 0.4)' }}>
+                  Démarre Morix automatiquement avec le système
+                </span>
+              </div>
+
+              <button
+                type="button"
+                data-testid="toggle-autostart"
+                aria-label="Basculer lancement au démarrage"
+                onClick={() => onAutoStartChange?.(!autoStart)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '0.6875rem',
+                  fontWeight: 600,
+                  backgroundColor: autoStart ? 'rgba(59, 130, 246, 0.16)' : 'rgba(255, 255, 255, 0.06)',
+                  border: autoStart
+                    ? '1px solid rgba(59, 130, 246, 0.4)'
+                    : '1px solid rgba(255, 255, 255, 0.1)',
+                  color: autoStart ? '#93C5FD' : 'rgba(255, 255, 255, 0.45)',
+                  cursor: 'pointer',
+                  borderRadius: 0,
+                  transition: 'all 120ms ease',
+                }}
+              >
+                {autoStart ? 'Activé' : 'Désactivé'}
               </button>
             </div>
 

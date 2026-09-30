@@ -1,0 +1,60 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.iroko.morix",
+  "productName": "Morix",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "main.cjs",
+    "preload.cjs",
+    "assets/**/*",
+    "package.json",
+    "!**/.env*",
+    "!scripts/**/*",
+    "!*.log",
+    "!*.ts",
+    "!tsconfig*.json",
+    "!vite.config.ts",
+    "!electron_*.png",
+    "!*.ico.bak"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "assets/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Morix"
+  },
+  "mac": {
+    "target": ["dmg"],
+    "icon": "assets/icon.png",
+    "category": "public.app-category.productivity"
+  },
+  "dmg": {
+    "title": "Installation de Morix",
+    "contents": [
+      {
+        "x": 130,
+        "y": 220
+      },
+      {
+        "x": 410,
+        "y": 220,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ]
+  }
+}

@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { GEMINI_CONFIG } from '../config';
-
 export interface UserPreferences {
   langue?: 'fr' | 'en';
   languePreference?: 'auto' | 'fr' | 'en';
@@ -12,6 +10,9 @@ export interface UserPreferences {
   voix?: string;
   micSensitivity?: number; // 0 à 100, défaut 50
   devShortcutEnabled?: boolean; // défaut true
+  alwaysOnTop?: boolean; // défaut false
+  transparentBackground?: boolean; // défaut false
+  autoStart?: boolean; // défaut false
 }
 
 export interface SessionSummary {
@@ -207,7 +208,7 @@ export function getMemoryContextForInstruction(): string {
 }
 
 /**
- * Analyse une liste d'échanges récents via le serveur Gemini (/api/summarize),
+ * Analyse une liste d'échanges récents via le processus principal (morixAPI.resumerSession),
  * génère un résumé en 2-3 phrases et persiste les données en local.
  */
 export async function summarizeAndPersistConversation(
@@ -223,33 +224,26 @@ export async function summarizeAndPersistConversation(
   }
 
   try {
-    const resp = await fetch(GEMINI_CONFIG.endpoints.summarize, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: rawText }),
-    });
+    if (typeof window !== 'undefined' && window.morixAPI?.resumerSession) {
+      const data = await window.morixAPI.resumerSession(rawText);
+      if (data && data.status === 'success' && data.resume) {
+        addSessionSummary(data.resume);
 
-    if (!resp.ok) {
-      throw new Error(`Erreur serveur HTTP ${resp.status}`);
-    }
+        if (data.nomUtilisateur || data.langue) {
+          updateUserPreferences({
+            ...(data.nomUtilisateur ? { nomUtilisateur: data.nomUtilisateur } : {}),
+            ...(data.langue ? { langue: data.langue } : {}),
+          });
+        }
 
-    const data = await resp.json();
-    if (data.status === 'success' && data.resume) {
-      addSessionSummary(data.resume);
-
-      if (data.nomUtilisateur || data.langue) {
-        updateUserPreferences({
-          ...(data.nomUtilisateur ? { nomUtilisateur: data.nomUtilisateur } : {}),
-          ...(data.langue ? { langue: data.langue } : {}),
-        });
+        return {
+          id: `summary-${Date.now()}`,
+          timestamp: Date.now(),
+          resume: data.resume,
+        };
       }
-
-      return {
-        id: `summary-${Date.now()}`,
-        timestamp: Date.now(),
-        resume: data.resume,
-      };
     }
+    throw new Error('IPC resumerSession non disponible ou réponse invalide');
   } catch (err: any) {
     console.warn('[Morix Memory] Échec de la génération IA du résumé, création d\'une synthèse locale de secours :', err?.message || err);
     // Synthèse de secours locale pour ne rien perdre

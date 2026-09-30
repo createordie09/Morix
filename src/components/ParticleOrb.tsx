@@ -299,9 +299,10 @@ const STATE_TARGETS: Record<OrbState, AnimatedState> = {
 
 interface ParticleOrbProps {
   state?: OrbState;
+  transparentBackground?: boolean;
 }
 
-export default function ParticleOrb({ state = 'idle' }: ParticleOrbProps) {
+export default function ParticleOrb({ state = 'idle', transparentBackground = false }: ParticleOrbProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<OrbState>(state);
 
@@ -319,13 +320,21 @@ export default function ParticleOrb({ state = 'idle' }: ParticleOrbProps) {
 
     // 1. Scene setup
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x000000);
+    if (!transparentBackground) {
+      scene.background = new THREE.Color(0x000000);
+    } else {
+      scene.background = null;
+    }
 
     // 2. Camera setup with well-proportioned framing
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
     const updateCameraDistance = (w: number, h: number) => {
       const aspect = w / h;
-      const baseDistance = 8.2;
+      const minDimension = Math.min(w, h);
+      let baseDistance = 8.2;
+      if (minDimension < 500) {
+        baseDistance = 8.2 * (500 / Math.max(minDimension, 260));
+      }
       camera.position.z = aspect < 1 ? baseDistance / Math.max(aspect * 0.9, 0.55) : baseDistance;
       camera.position.x = 0;
       camera.position.y = 0;
@@ -336,12 +345,16 @@ export default function ParticleOrb({ state = 'idle' }: ParticleOrbProps) {
     // 3. Renderer setup
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
-      alpha: false,
+      alpha: true,
       powerPreference: 'high-performance',
     });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setClearColor(0x000000, 1);
+    if (transparentBackground) {
+      renderer.setClearColor(0x000000, 0);
+    } else {
+      renderer.setClearColor(0x000000, 1);
+    }
     container.appendChild(renderer.domElement);
 
     // 4. Geometry and Quality Tiers for Adaptive Performance
@@ -582,7 +595,7 @@ export default function ParticleOrb({ state = 'idle' }: ParticleOrbProps) {
       shaderMaterial.dispose();
       renderer.dispose();
     };
-  }, []);
+  }, [transparentBackground]);
 
   return (
     <div

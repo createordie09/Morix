@@ -22,6 +22,7 @@ interface DashboardWindowProps {
   tasks?: TaskItem[];
   confirmation?: ConfirmationData;
   children?: React.ReactNode;
+  isStandalone?: boolean;
   onClose: (id: string) => void;
   onConfirmChoice?: (id: string, choice: 'oui' | 'non') => void;
   onToggleTask?: (windowId: string, taskId: string) => void;
@@ -37,6 +38,7 @@ export default function DashboardWindow({
   tasks: initialTasks,
   confirmation,
   children,
+  isStandalone = false,
   onClose,
   onConfirmChoice,
   onToggleTask,
@@ -72,7 +74,7 @@ export default function DashboardWindow({
     setIsClosing(true);
     setTimeout(() => {
       onClose(id);
-    }, 280);
+    }, isStandalone ? 100 : 280);
   };
 
   const handleTaskCheck = (taskId: string) => {
@@ -111,28 +113,31 @@ export default function DashboardWindow({
       aria-label={title}
       aria-live="polite"
       style={{
-        position: 'fixed',
-        top: safeY,
-        left: safeX,
-        width,
-        maxWidth: 'calc(100vw - 32px)',
-        maxHeight: 'calc(100vh - 80px)',
-        backgroundColor: 'rgba(10, 10, 14, 0.94)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        border:
-          type === 'confirmation' && !confirmation?.resolved
-            ? '1px solid rgba(251, 191, 36, 0.35)'
-            : '1px solid rgba(255, 255, 255, 0.08)',
-        boxShadow:
-          type === 'confirmation' && !confirmation?.resolved
-            ? '0 16px 40px rgba(0, 0, 0, 0.65), 0 0 24px rgba(251, 191, 36, 0.08)'
-            : '0 16px 40px rgba(0, 0, 0, 0.6)',
+        position: isStandalone ? 'relative' : 'fixed',
+        top: isStandalone ? 0 : safeY,
+        left: isStandalone ? 0 : safeX,
+        width: isStandalone ? '100%' : width,
+        height: isStandalone ? '100vh' : undefined,
+        maxWidth: isStandalone ? '100%' : 'calc(100vw - 32px)',
+        maxHeight: isStandalone ? '100vh' : 'calc(100vh - 80px)',
+        backgroundColor: '#0A0A0E',
+        backdropFilter: isStandalone ? 'none' : 'blur(20px)',
+        WebkitBackdropFilter: isStandalone ? 'none' : 'blur(20px)',
+        border: isStandalone
+          ? 'none'
+          : type === 'confirmation' && !confirmation?.resolved
+          ? '1px solid rgba(251, 191, 36, 0.35)'
+          : '1px solid rgba(255, 255, 255, 0.08)',
+        boxShadow: isStandalone
+          ? 'none'
+          : type === 'confirmation' && !confirmation?.resolved
+          ? '0 16px 40px rgba(0, 0, 0, 0.65), 0 0 24px rgba(251, 191, 36, 0.08)'
+          : '0 16px 40px rgba(0, 0, 0, 0.6)',
         borderRadius: 0,
         zIndex: 45,
         display: 'flex',
         flexDirection: 'column',
-        animation: 'windowScaleIn 300ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        animation: isStandalone ? 'none' : 'windowScaleIn 300ms cubic-bezier(0.16, 1, 0.3, 1) both',
         opacity: isClosing ? 0 : 1,
         transform: isClosing ? 'scale(0.95)' : 'scale(1)',
         transition:
@@ -143,6 +148,7 @@ export default function DashboardWindow({
     >
       {/* Window Header */}
       <div
+        className={isStandalone ? 'window-drag-region' : undefined}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -185,6 +191,8 @@ export default function DashboardWindow({
         {/* Close Button */}
         <button
           type="button"
+          className="window-no-drag"
+          data-testid="dashboard-btn-close"
           onClick={handleClose}
           aria-label={`Fermer ${title}`}
           style={{
@@ -475,6 +483,8 @@ export default function DashboardWindow({
               >
                 <button
                   type="button"
+                  className="window-no-drag"
+                  data-testid="dashboard-btn-oui"
                   onClick={() => onConfirmChoice?.(id, 'oui')}
                   style={{
                     flex: 1,
@@ -507,6 +517,8 @@ export default function DashboardWindow({
 
                 <button
                   type="button"
+                  className="window-no-drag"
+                  data-testid="dashboard-btn-non"
                   onClick={() => onConfirmChoice?.(id, 'non')}
                   style={{
                     flex: 1,

@@ -4,7 +4,9 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import ApiKeyModal from './components/ApiKeyModal';
 import DashboardWindow from './components/DashboardWindow';
+import DashboardStandaloneView from './components/DashboardStandaloneView';
 import ParticleOrb from './components/ParticleOrb';
 import SettingsPanel from './components/SettingsPanel';
 import StatusPill, { StatusPillState } from './components/StatusPill';
@@ -24,6 +26,15 @@ import {
 import { OrbState } from './types/orb';
 
 export default function App() {
+  // Détection du mode Fenêtre Dashboard Native Electron
+  const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const isDashboardView = urlParams?.get('window') === 'dashboard';
+  const dashboardId = urlParams?.get('id') || '';
+
+  if (isDashboardView) {
+    return <DashboardStandaloneView windowId={dashboardId} />;
+  }
+
   const [orbState, setOrbState] = useState<OrbState>('idle');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isActivated, setIsActivated] = useState(false);
@@ -50,6 +61,76 @@ export default function App() {
   const [devShortcutEnabled, setDevShortcutEnabled] = useState<boolean>(
     () => loadLocalMemory().preferences.devShortcutEnabled ?? true
   );
+  const [alwaysOnTop, setAlwaysOnTop] = useState<boolean>(
+    () => loadLocalMemory().preferences.alwaysOnTop ?? false
+  );
+  const [transparentBackground, setTransparentBackground] = useState<boolean>(
+    () => loadLocalMemory().preferences.transparentBackground ?? false
+  );
+  const [autoStart, setAutoStart] = useState<boolean>(
+    () => loadLocalMemory().preferences.autoStart ?? false
+  );
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
+  const [apiKeyStatus, setApiKeyStatus] = useState<{
+    hasKey: boolean;
+    isFromEnv: boolean;
+    maskedKey: string;
+  }>({ hasKey: true, isFromEnv: false, maskedKey: '' });
+
+  const handleAlwaysOnTopChange = (enabled: boolean) => {
+    setAlwaysOnTop(enabled);
+    updateUserPreferences({ alwaysOnTop: enabled });
+    if (typeof window !== 'undefined' && window.morixAPI?.setAlwaysOnTop) {
+      window.morixAPI.setAlwaysOnTop(enabled);
+    }
+  };
+
+  const handleTransparentBackgroundChange = (enabled: boolean) => {
+    setTransparentBackground(enabled);
+    updateUserPreferences({ transparentBackground: enabled });
+  };
+
+  const handleAutoStartChange = async (enabled: boolean) => {
+    setAutoStart(enabled);
+    updateUserPreferences({ autoStart: enabled });
+    if (typeof window !== 'undefined' && window.morixAPI?.setAutostart) {
+      try {
+        const res = await window.morixAPI.setAutostart(enabled);
+        setAutoStart(res);
+      } catch (err) {
+        console.warn('[Morix App] Erreur setAutostart :', err);
+      }
+    }
+  };
+
+  // Synchroniser l'état initial Toujours au premier plan, Lancement au démarrage et Clé API
+  useEffect(() => {
+    const initialAlwaysOnTop = loadLocalMemory().preferences.alwaysOnTop;
+    if (initialAlwaysOnTop && typeof window !== 'undefined' && window.morixAPI?.setAlwaysOnTop) {
+      window.morixAPI.setAlwaysOnTop(initialAlwaysOnTop);
+    }
+
+    if (typeof window !== 'undefined' && window.morixAPI?.getAutostart) {
+      window.morixAPI.getAutostart().then((enabled) => {
+        setAutoStart(enabled);
+        updateUserPreferences({ autoStart: enabled });
+      }).catch((err) => {
+        console.warn('[Morix App] Erreur lecture getAutostart :', err);
+      });
+    }
+
+    if (typeof window !== 'undefined' && window.morixAPI?.getApiKeyStatus) {
+      window.morixAPI.getApiKeyStatus().then((status) => {
+        setApiKeyStatus(status);
+        if (!status.hasKey) {
+          // Affichage automatique de l'écran de configuration initial si aucune clé n'existe
+          setIsApiKeyModalOpen(true);
+        }
+      }).catch((err) => {
+        console.warn('[Morix App] Erreur vérification clé API :', err);
+      });
+    }
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -143,7 +224,7 @@ export default function App() {
   /**
    * Ouvre une fenêtre modulaire pilotée par Morix (outil "ouvrir_fenetre")
    */
-  const handleOpenModularWindow = (params: {
+  const handleOpenModularWindow = async (params: {
     type?: WindowType;
     titre?: string;
     contenu?: string[];
@@ -193,32 +274,28 @@ export default function App() {
       }));
     }
 
-    setDashboardWindows((prev) => {
-      const windowCount = prev.length;
-      const cascadeOffset = (windowCount % 5) * 36;
-      const initialX = Math.max(24, screenWidth - baseWidth - 48 - cascadeOffset);
-      const initialY = Math.min(screenHeight - 360, 48 + cascadeOffset);
+    const newWindow: DashboardWindowData = {
+      id: windowId,
+      type: windowType,
+      title: finalTitle,
+      position: { x: 0, y: 0 },
+      width: baseWidth,
+      items,
+      tasks,
+      confirmation:
+        windowType === 'confirmation'
+          ? {
+              question: params.question || params.titre || 'Confirmez-vous cette action ?',
+              description: params.description,
+              resolved: false,
+            }
+          : undefined,
+    };
 
-      const newWindow: DashboardWindowData = {
-        id: windowId,
-        type: windowType,
-        title: finalTitle,
-        position: { x: initialX, y: initialY },
-        width: baseWidth,
-        items,
-        tasks,
-        confirmation:
-          windowType === 'confirmation'
-            ? {
-                question: params.question || params.titre || 'Confirmez-vous cette action ?',
-                description: params.description,
-                resolved: false,
-              }
-            : undefined,
-      };
-
-      return [...prev, newWindow];
-    });
+    // Ouvrir une vraie fenêtre Electron native séparée
+    if (typeof window !== 'undefined' && window.morixAPI?.openDashboardWindow) {
+      await window.morixAPI.openDashboardWindow(newWindow);
+    }
 
     if (windowType === 'confirmation') {
       return new Promise<Record<string, unknown>>((resolve) => {
@@ -237,13 +314,13 @@ export default function App() {
       });
     }
 
-    return Promise.resolve({
+    return {
       status: 'success',
       type: windowType,
       titreAffiche: finalTitle,
       nombreElements: tasks ? tasks.length : items ? items.length : 0,
-      message: `La fenêtre [${windowType.toUpperCase()}] "${finalTitle}" a été affichée sur l'écran.`,
-    });
+      message: `La fenêtre native [${windowType.toUpperCase()}] "${finalTitle}" a été ouverte sur le bureau.`,
+    };
   };
 
   const handleConfirmChoice = (windowId: string, choice: 'oui' | 'non') => {
@@ -287,6 +364,24 @@ export default function App() {
 
     setDashboardWindows((prev) => prev.filter((w) => w.id !== id));
   };
+
+  // Écouteurs IPC pour les fenêtres dashboard natives (confirmation et fermeture)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.morixAPI) return;
+
+    const unsubConfirmed = window.morixAPI.onDashboardConfirmed?.((data) => {
+      handleConfirmChoice(data.id, data.choice);
+    });
+
+    const unsubClosed = window.morixAPI.onDashboardClosed?.((data) => {
+      handleCloseWindow(data.id);
+    });
+
+    return () => {
+      unsubConfirmed?.();
+      unsubClosed?.();
+    };
+  }, []);
 
   // Activation de Morix déclenchée par un clic utilisateur
   const handleActivateMorix = async () => {
@@ -380,6 +475,10 @@ export default function App() {
   };
 
   const handlePillClick = () => {
+    if (!apiKeyStatus.hasKey) {
+      setIsApiKeyModalOpen(true);
+      return;
+    }
     if (micDenied || effectivePillState === 'blocked') {
       setShowMicModal(true);
     } else if (!isActivated) {
@@ -388,6 +487,19 @@ export default function App() {
       handleToggleMute();
     }
   };
+
+  const handlePillClickRef = useRef(handlePillClick);
+  handlePillClickRef.current = handlePillClick;
+
+  // Abonnement au basculement micro déclenché par raccourci global (Ctrl+Shift+Space)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.morixAPI?.onToggleMic) return;
+    const unsub = window.morixAPI.onToggleMic(() => {
+      console.log('[Morix App] Raccourci global micro déclenché.');
+      handlePillClickRef.current();
+    });
+    return () => unsub();
+  }, []);
 
   const handleOpenStandalone = () => {
     if (typeof window !== 'undefined') {
@@ -403,34 +515,36 @@ export default function App() {
   }, []);
 
   return (
-    <div className="app-root">
+    <div
+      className="app-root"
+      style={{
+        backgroundColor: transparentBackground ? 'transparent' : '#000000',
+      }}
+    >
+      {/* Zone de glisser-déplacer invisible en haut de la fenêtre (Frameless Electron Drag Region) */}
+      <div
+        className="window-drag-region"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '36px',
+          zIndex: 35,
+        }}
+      />
+
       {/* Central 3D Particle Orb (Piloted strictly by real-time audio stream) */}
       <div id="orb-container">
-        <ParticleOrb state={effectiveOrbState} />
+        <ParticleOrb state={effectiveOrbState} transparentBackground={transparentBackground} />
       </div>
 
-      {/* Floating Dashboard Windows (Générées par Gemini via ouvrir_fenetre) */}
-      <div aria-live="polite" aria-relevant="additions text">
-        {dashboardWindows.map((win) => (
-          <DashboardWindow
-            key={win.id}
-            id={win.id}
-            type={win.type}
-            title={win.title}
-            position={win.position}
-            width={win.width}
-            items={win.items}
-            tasks={win.tasks}
-            confirmation={win.confirmation}
-            onClose={handleCloseWindow}
-            onConfirmChoice={handleConfirmChoice}
-          />
-        ))}
-      </div>
+      {/* Les fenêtres Dashboard sont maintenant de vraies fenêtres Electron natives gérées par le main process */}
 
       {/* Discreet Gear Icon Button (Bottom-Left) */}
       <button
         type="button"
+        className="window-no-drag"
         onClick={() => setIsSettingsOpen((prev) => !prev)}
         onFocus={(e) => {
           e.currentTarget.style.color = '#FFFFFF';
@@ -518,10 +632,30 @@ export default function App() {
         onMicSensitivityChange={handleMicSensitivityChange}
         devShortcutEnabled={devShortcutEnabled}
         onDevShortcutEnabledChange={handleDevShortcutEnabledChange}
+        alwaysOnTop={alwaysOnTop}
+        onAlwaysOnTopChange={handleAlwaysOnTopChange}
+        transparentBackground={transparentBackground}
+        onTransparentBackgroundChange={handleTransparentBackgroundChange}
+        autoStart={autoStart}
+        onAutoStartChange={handleAutoStartChange}
+        maskedApiKey={apiKeyStatus.maskedKey}
+        onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
+      />
+
+      {/* Écran modal de configuration de la Clé API Gemini */}
+      <ApiKeyModal
+        isOpen={isApiKeyModalOpen}
+        onClose={() => setIsApiKeyModalOpen(false)}
+        onKeySaved={(newMaskedKey) => {
+          setApiKeyStatus((prev) => ({ ...prev, hasKey: true, maskedKey: newMaskedKey }));
+        }}
+        canClose={apiKeyStatus.hasKey}
+        currentMaskedKey={apiKeyStatus.maskedKey}
       />
 
       {/* Microphone Control Bar (Centre Bas - Pastille de Statut Glassmorphic Unique) */}
       <div
+        className="window-no-drag"
         style={{
           position: 'fixed',
           bottom: '36px',
