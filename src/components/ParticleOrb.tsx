@@ -300,16 +300,26 @@ const STATE_TARGETS: Record<OrbState, AnimatedState> = {
 interface ParticleOrbProps {
   state?: OrbState;
   transparentBackground?: boolean;
+  audioIntensity?: number;
 }
 
-export default function ParticleOrb({ state = 'idle', transparentBackground = false }: ParticleOrbProps) {
+export default function ParticleOrb({
+  state = 'idle',
+  transparentBackground = false,
+  audioIntensity = 0,
+}: ParticleOrbProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<OrbState>(state);
+  const audioIntensityRef = useRef<number>(audioIntensity);
 
-  // Keep stateRef in sync with current state prop
+  // Keep stateRef and audioIntensityRef in sync
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    audioIntensityRef.current = audioIntensity;
+  }, [audioIntensity]);
 
   useEffect(() => {
     const container = mountRef.current;
@@ -515,13 +525,20 @@ export default function ParticleOrb({ state = 'idle', transparentBackground = fa
       shaderMaterial.uniforms.uAudioWave.value = currentValues.audioWave;
       shaderMaterial.uniforms.uMuted.value = currentValues.muted;
 
-      // Simulated speech envelope for 'speaking' state
-      const totalElapsed = clock.getElapsedTime();
-      const rawSpeech =
-        Math.sin(totalElapsed * 5.2) * 0.45 +
-        Math.sin(totalElapsed * 8.7) * 0.35 +
-        Math.cos(totalElapsed * 2.8) * 0.30;
-      const speechIntensity = Math.max(0.15, rawSpeech + 0.45);
+      // Speech envelope: real audio intensity when available, or fallback to simulated envelope
+      let speechIntensity: number;
+      const realIntensity = audioIntensityRef.current;
+      if (typeof realIntensity === 'number' && realIntensity > 0) {
+        // Boost dynamic range for visible particle pulsation synchronized to actual speech
+        speechIntensity = Math.min(1.6, Math.max(0.18, realIntensity * 2.2));
+      } else {
+        const totalElapsed = clock.getElapsedTime();
+        const rawSpeech =
+          Math.sin(totalElapsed * 5.2) * 0.45 +
+          Math.sin(totalElapsed * 8.7) * 0.35 +
+          Math.cos(totalElapsed * 2.8) * 0.30;
+        speechIntensity = Math.max(0.15, rawSpeech + 0.45);
+      }
       shaderMaterial.uniforms.uAudioIntensity.value = speechIntensity;
 
       // Smooth vertical Y rotation

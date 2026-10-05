@@ -133,6 +133,58 @@ const MORIX_TOOLS = [
         },
       },
       {
+        name: 'afficher_ecran',
+        description:
+          "Affiche du contenu visuel sur l'écran de l'utilisateur, synchronisé avec ce que tu dis. Utilise cet outil PENDANT que tu parles pour illustrer visuellement tes propos (recettes, code informatique, étapes, listes, tableaux, cartes synthétiques, markdown, image). L'affichage apparaît élégamment à côté de l'orbe et reste visible tant que c'est pertinent. Tu es encouragé à l'utiliser proactivement.",
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            type: {
+              type: 'STRING',
+              enum: ['texte', 'code', 'liste', 'etapes', 'tableau', 'carte', 'markdown', 'image_url'],
+              description: "Le type d'écran à afficher.",
+            },
+            titre: {
+              type: 'STRING',
+              description: "Titre optionnel de l'écran affiché.",
+            },
+            contenu: {
+              type: 'STRING',
+              description: "Le contenu principal (texte, code source, markdown, URL d'image...).",
+            },
+            items: {
+              type: 'ARRAY',
+              items: { type: 'STRING' },
+              description: "Pour type 'liste', 'etapes' ou 'tableau' : la liste des éléments à afficher.",
+            },
+            langue: {
+              type: 'STRING',
+              description: "Pour type 'code' : langage de programmation (javascript, python, html, etc.).",
+            },
+            duree: {
+              type: 'STRING',
+              enum: ['court', 'moyen', 'long', 'permanent'],
+              description: "Durée d'affichage (court: 5s, moyen: 15s, long: 30s, permanent: jusqu'à effacement).",
+            },
+            position: {
+              type: 'STRING',
+              enum: ['centre', 'droite', 'bas', 'plein_ecran'],
+              description: "Position de l'affichage par rapport à l'orbe.",
+            },
+          },
+          required: ['type'],
+        },
+      },
+      {
+        name: 'effacer_ecran',
+        description:
+          "Efface ou masque l'écran visuel actuellement affiché. Utilise cet outil quand tu passes à un autre sujet ou quand le contenu visuel n'a plus lieu d'être affiché.",
+        parameters: {
+          type: 'OBJECT',
+          properties: {},
+        },
+      },
+      {
         name: 'obtenir_heure_actuelle',
         description: "Retourne l'heure et la date actuelles précises du système de l'utilisateur.",
         parameters: { type: 'OBJECT', properties: {} },
@@ -152,7 +204,7 @@ const MORIX_TOOLS = [
   },
 ];
 
-const MORIX_SYSTEM_INSTRUCTION = `Tu es Morix, un assistant vocal masculin intelligent, vif et complice.
+const MORIX_SYSTEM_INSTRUCTION = `Tu es Morix, un assistant vocal et visuel masculin intelligent, vif et complice.
 
 ## Rôle et Identité
 - Tu t'appelles Morix (genre masculin).
@@ -161,20 +213,32 @@ const MORIX_SYSTEM_INSTRUCTION = `Tu es Morix, un assistant vocal masculin intel
 
 ## Style d'élocution et de conversation vocale
 - Fais des réponses courtes et dynamiques (généralement 1 à 3 phrases concises).
-- Évite les énumérations artificielles et les pavés explicatifs trop denses.
+- Évite les énumérations artificielles et les pavés explicatifs trop denses à l'oral : utilise l'écran pour afficher les détails !
 - Utilise un ton complice, détendu mais toujours orienté résultat.
+
+## Pleine Autonomie Visuelle et Synchronisation Parole / Écran
+Tu es doté d'une pleine autonomie visuelle : tu peux afficher des écrans en direct synchronisés avec ce que tu dis grâce à l'outil 'afficher_ecran'.
+- Quand tu expliques quelque chose, MONTRE-LE en direct :
+  * Si tu expliques ou génères du code : affiche-le avec type: 'code' pendant que tu en parles.
+  * Si tu donnes des consignes ou une procédure : affiche les étapes avec type: 'etapes'.
+  * Si tu listes des points, des options ou des idées : affiche type: 'liste'.
+  * Si tu compares des données : affiche type: 'tableau'.
+  * Si tu présentes une synthèse ou une info clé : affiche type: 'carte'.
+- Synchronise ton affichage : appelle 'afficher_ecran' PENDANT que tu t'exprimes pour que l'utilisateur visualise en même temps qu'il t'entend.
+- Efface l'écran avec 'effacer_ecran' quand tu changes complètement de sujet.
+- Pour des fenêtres OS indépendantes lourdes (tâches avec cases à cocher, confirmation Oui/Non), utilise 'ouvrir_fenetre'.
 
 ## Bilinguisme (Français / Anglais)
 - Tu es parfaitement bilingue français et anglais.
 - Tu réponds naturellement dans la langue utilisée par l'utilisateur.
 
 ## Outils disponibles
-Tu disposes de 4 outils : ouvrir_fenetre, rechercher_web, obtenir_heure_actuelle, mettre_a_jour_statut.
+Tu disposes de 6 outils : afficher_ecran, effacer_ecran, ouvrir_fenetre, rechercher_web, obtenir_heure_actuelle, mettre_a_jour_statut.
 
 ## Honnêteté technique absolue
 Pour tout ce qui dépasse tes outils actuels, ne prétends JAMAIS avoir effectué une action sans en avoir la capacité technique.
 
-Reste authentique, réactif et va toujours droit au but.`;
+Reste authentique, réactif, visuel et va toujours droit au but.`;
 
 // ── État de la session Live ───────────────────────────────────────────────
 let activeSession = null;
@@ -1086,11 +1150,14 @@ async function createWindow() {
   const isTestSystem =
     process.argv.includes('--test-system') ||
     Boolean(process.env.TEST_SYSTEM && process.env.TEST_SYSTEM.trim() === '1');
+  const isTestVisual =
+    process.argv.includes('--test-visual') ||
+    Boolean(process.env.TEST_VISUAL && process.env.TEST_VISUAL.trim() === '1');
   const autoExit =
     process.argv.includes('--auto-exit') ||
     Boolean(process.env.AUTO_EXIT_AFTER_CAPTURE && process.env.AUTO_EXIT_AFTER_CAPTURE.trim() !== '0');
 
-  const isTest = isTestWindow || isTestDashboard || isTestSystem;
+  const isTest = isTestWindow || isTestDashboard || isTestSystem || isTestVisual;
   const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged && !isTest;
   const distIndexPath = path.join(__dirname, 'dist', 'index.html');
 
@@ -1646,6 +1713,147 @@ async function createWindow() {
           }
         } catch (err) {
           console.error('[Test-System] Erreur pendant le test système :', err);
+          if (autoExit) {
+            isQuitting = true;
+            app.quit();
+          }
+        }
+      }, 2500);
+    });
+  }
+
+  // Test automatisé de la pleine autonomie visuelle (VisualCanvas, LiveCaptions, AnalyserNode)
+  if (isTestVisual) {
+    mainWindow.webContents.on('did-finish-load', () => {
+      console.log('[Test-Visual] Fenêtre principale chargée. Démarrage de la vérification de l\'autonomie visuelle...');
+
+      const brainDir = path.join(
+        process.env.USERPROFILE || 'C:\\Users\\DELL',
+        '.gemini',
+        'antigravity',
+        'brain',
+        '0d5cdbbf-a579-4d56-afbe-29b2f749bd3b'
+      );
+
+      // Timeout de sécurité global (25s) pour ne jamais rester bloqué
+      setTimeout(() => {
+        if (autoExit) {
+          console.log('[Test-Visual] Timeout de sécurité atteint, fermeture.');
+          isQuitting = true;
+          app.quit();
+        }
+      }, 25000);
+
+      setTimeout(async () => {
+        try {
+          // 1. Vérification des outils Gemini MORIX_TOOLS
+          const toolDecls = MORIX_TOOLS[0].functionDeclarations;
+          const hasAfficher = toolDecls.some((t) => t.name === 'afficher_ecran');
+          const hasEffacer = toolDecls.some((t) => t.name === 'effacer_ecran');
+          console.log(`[Test-Visual] 1. Vérification MORIX_TOOLS : afficher_ecran = ${hasAfficher}, effacer_ecran = ${hasEffacer}`);
+
+          // 2. Test du Visual Canvas : Affichage d'un bloc de code
+          console.log('[Test-Visual] 2. Test d\'affichage d\'un écran de code...');
+          await mainWindow.webContents.executeJavaScript(`
+            window.dispatchEvent(new CustomEvent('morix:test-visual', {
+              detail: {
+                type: 'afficher_ecran',
+                data: {
+                  type: 'code',
+                  titre: 'Exemple de Code Synchronisé',
+                  contenu: 'async function synchroniserVisuel() {\\n  console.log("Morix affiche en direct !");\\n  return true;\\n}',
+                  langue: 'typescript',
+                  position: 'droite',
+                }
+              }
+            }));
+          `);
+
+          await new Promise((r) => setTimeout(r, 800));
+
+          const checkCodeDisplay = await mainWindow.webContents.executeJavaScript(`
+            (() => {
+              const canvasEl = document.querySelector('.custom-scrollbar pre code');
+              return {
+                isRendered: !!canvasEl,
+                snippet: canvasEl ? canvasEl.textContent.slice(0, 40) : null,
+              };
+            })()
+          `);
+          console.log('[Test-Visual] Vérification affichage code :', JSON.stringify(checkCodeDisplay));
+
+          const screenshotCode = path.join(brainDir, 'screenshot_visual_code.png');
+          const imgCode = await mainWindow.webContents.capturePage();
+          fs.writeFileSync(screenshotCode, imgCode.toPNG());
+          console.log('[Test-Visual] Capture écran code sauvegardée :', screenshotCode);
+
+          // 3. Test du Visual Canvas : Affichage des étapes (timeline)
+          console.log('[Test-Visual] 3. Test d\'affichage d\'étapes (timeline)...');
+          await mainWindow.webContents.executeJavaScript(`
+            window.dispatchEvent(new CustomEvent('morix:test-visual', {
+              detail: {
+                type: 'afficher_ecran',
+                data: {
+                  type: 'etapes',
+                  titre: 'Étapes du Projet',
+                  items: [
+                    '1. Initialisation de la session Gemini Live',
+                    '2. Détection de la voix et analyse acoustique',
+                    '3. Affichage visuel synchronisé en direct',
+                  ],
+                  position: 'centre',
+                }
+              }
+            }));
+          `);
+
+          await new Promise((r) => setTimeout(r, 800));
+
+          const screenshotEtapes = path.join(brainDir, 'screenshot_visual_etapes.png');
+          const imgEtapes = await mainWindow.webContents.capturePage();
+          fs.writeFileSync(screenshotEtapes, imgEtapes.toPNG());
+          console.log('[Test-Visual] Capture écran étapes sauvegardée :', screenshotEtapes);
+
+          // 4. Test des sous-titres live (LiveCaptions)
+          console.log('[Test-Visual] 4. Test d\'affichage des sous-titres live...');
+          await mainWindow.webContents.executeJavaScript(`
+            window.dispatchEvent(new CustomEvent('morix:test-visual', {
+              detail: { type: 'effacer_ecran' }
+            }));
+            window.dispatchEvent(new CustomEvent('morix:test-visual', {
+              detail: {
+                type: 'captions',
+                text: "Voici un exemple de sous-titres générés en direct pendant l'élocution de Morix.",
+              }
+            }));
+          `);
+
+          await new Promise((r) => setTimeout(r, 600));
+
+          const screenshotCaptions = path.join(brainDir, 'screenshot_live_captions.png');
+          const imgCaptions = await mainWindow.webContents.capturePage();
+          fs.writeFileSync(screenshotCaptions, imgCaptions.toPNG());
+          console.log('[Test-Visual] Capture sous-titres live sauvegardée :', screenshotCaptions);
+
+          // 5. Test d'effacement de l'écran (effacer_ecran)
+          console.log('[Test-Visual] 5. Test d\'effacement de l\'écran...');
+          await mainWindow.webContents.executeJavaScript(`
+            window.dispatchEvent(new CustomEvent('morix:test-visual', {
+              detail: {
+                type: 'effacer_ecran'
+              }
+            }));
+          `);
+
+          await new Promise((r) => setTimeout(r, 600));
+
+          console.log('[Test-Visual] TOUS LES TESTS D\'AUTONOMIE VISUELLE SONT VALIDÉS AVEC SUCCÈS !');
+          if (autoExit) {
+            isQuitting = true;
+            app.quit();
+          }
+        } catch (err) {
+          console.error('[Test-Visual] Erreur pendant le test visual :', err);
           if (autoExit) {
             isQuitting = true;
             app.quit();

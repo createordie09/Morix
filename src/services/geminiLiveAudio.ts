@@ -103,6 +103,7 @@ export interface LiveAudioController {
 export interface LiveAudioOptions {
   onStateChange: (state: OrbState) => void;
   onVolumeChange?: (volume: number) => void;
+  onOutputAudioIntensity?: (intensity: number) => void;
   onError?: (error: any) => void;
   onTranscript?: (text: string, isModel: boolean) => void;
   onToolCall?: (call: {
@@ -124,10 +125,12 @@ export function createGeminiLiveAudio(options: LiveAudioOptions): LiveAudioContr
   let sourceNode: MediaStreamAudioSourceNode | null = null;
   let muteGainNode: GainNode | null = null;
 
-  // Playback queue & scheduling
+  // Playback queue, scheduling & analyse audio en temps réel
   let nextPlayTime = 0;
   let activeSources: AudioBufferSourceNode[] = [];
   let isSpeaking = false;
+  let outputAnalyser: AnalyserNode | null = null;
+  let outputIntensityAnimId: number | null = null;
 
   // VAD & thinking state timers
   let silenceStartTime = 0;
@@ -222,6 +225,11 @@ export function createGeminiLiveAudio(options: LiveAudioOptions): LiveAudioContr
     });
     activeSources = [];
     isSpeaking = false;
+    if (outputIntensityAnimId !== null) {
+      cancelAnimationFrame(outputIntensityAnimId);
+      outputIntensityAnimId = null;
+    }
+    options.onOutputAudioIntensity?.(0);
     if (outputAudioCtx) {
       nextPlayTime = outputAudioCtx.currentTime;
     }
@@ -235,7 +243,40 @@ export function createGeminiLiveAudio(options: LiveAudioOptions): LiveAudioContr
     if (outputAudioCtx.state === 'suspended') {
       await outputAudioCtx.resume();
     }
+    if (!outputAnalyser) {
+      outputAnalyser = outputAudioCtx.createAnalyser();
+      outputAnalyser.fftSize = 256;
+      outputAnalyser.smoothingTimeConstant = 0.5;
+      outputAnalyser.connect(outputAudioCtx.destination);
+    }
     nextPlayTime = outputAudioCtx.currentTime;
+  };
+
+  const startOutputIntensityMonitoring = () => {
+    if (outputIntensityAnimId !== null) return;
+    const dataArray = new Uint8Array(outputAnalyser ? outputAnalyser.frequencyBinCount : 128);
+
+    const monitorLoop = () => {
+      if (!isSpeaking || !outputAnalyser) {
+        outputIntensityAnimId = null;
+        options.onOutputAudioIntensity?.(0);
+        return;
+      }
+
+      outputAnalyser.getByteFrequencyData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        sum += dataArray[i];
+      }
+      const avg = sum / dataArray.length;
+      // Normaliser l'intensité de 0.0 à 1.0
+      const intensity = Math.min(1.0, avg / 120.0);
+      options.onOutputAudioIntensity?.(intensity);
+
+      outputIntensityAnimId = requestAnimationFrame(monitorLoop);
+    };
+
+    outputIntensityAnimId = requestAnimationFrame(monitorLoop);
   };
 
   const playPcm24kChunk = (base64Audio: string) => {
@@ -264,7 +305,13 @@ export function createGeminiLiveAudio(options: LiveAudioOptions): LiveAudioContr
 
       const source = outputAudioCtx.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(outputAudioCtx.destination);
+
+      // Connecter à l'AnalyserNode pour la réactivité visuelle synchronisée
+      if (outputAnalyser) {
+        source.connect(outputAnalyser);
+      } else {
+        source.connect(outputAudioCtx.destination);
+      }
 
       const now = outputAudioCtx.currentTime;
       const startTime = Math.max(now, nextPlayTime);
@@ -273,6 +320,7 @@ export function createGeminiLiveAudio(options: LiveAudioOptions): LiveAudioContr
 
       isSpeaking = true;
       updateState('speaking');
+      startOutputIntensityMonitoring();
 
       activeSources.push(source);
 
@@ -280,6 +328,11 @@ export function createGeminiLiveAudio(options: LiveAudioOptions): LiveAudioContr
         activeSources = activeSources.filter((s) => s !== source);
         if (activeSources.length === 0) {
           isSpeaking = false;
+          if (outputIntensityAnimId !== null) {
+            cancelAnimationFrame(outputIntensityAnimId);
+            outputIntensityAnimId = null;
+          }
+          options.onOutputAudioIntensity?.(0);
           if (isRunning && currentState === 'speaking') {
             updateState('idle');
           }

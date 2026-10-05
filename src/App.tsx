@@ -7,9 +7,11 @@ import { useEffect, useRef, useState } from 'react';
 import ApiKeyModal from './components/ApiKeyModal';
 import DashboardWindow from './components/DashboardWindow';
 import DashboardStandaloneView from './components/DashboardStandaloneView';
+import LiveCaptions from './components/LiveCaptions';
 import ParticleOrb from './components/ParticleOrb';
 import SettingsPanel from './components/SettingsPanel';
 import StatusPill, { StatusPillState } from './components/StatusPill';
+import VisualCanvas, { VisualCanvasData } from './components/VisualCanvas';
 import { createGeminiLiveAudio, LiveAudioController } from './services/geminiLiveAudio';
 import {
   addSessionSummary,
@@ -44,6 +46,12 @@ export default function App() {
   const [micVolume, setMicVolume] = useState(0);
   const [showMicModal, setShowMicModal] = useState(false);
   const [simulatedState, setSimulatedState] = useState<StatusPillState | null>(null);
+
+  // Pleine Autonomie Visuelle et Synchronisation Parole / Écran
+  const [visualCanvasData, setVisualCanvasData] = useState<VisualCanvasData | null>(null);
+  const [liveTranscript, setLiveTranscript] = useState<string>('');
+  const [isLiveCaptionsVisible, setIsLiveCaptionsVisible] = useState<boolean>(false);
+  const [outputAudioIntensity, setOutputAudioIntensity] = useState<number>(0);
 
   // Outils de test développeur masqués par défaut (accessible via raccourci secret Ctrl+Shift+D / Cmd+Shift+D)
   const [showDevTools, setShowDevTools] = useState(false);
@@ -394,14 +402,56 @@ export default function App() {
         liveAudioRef.current = createGeminiLiveAudio({
           onStateChange: (newState) => {
             setOrbState(newState);
+            if (newState !== 'speaking') {
+              setOutputAudioIntensity(0);
+              // Fermeture progressive des sous-titres après la fin de la parole
+              setTimeout(() => {
+                setIsLiveCaptionsVisible(false);
+                setLiveTranscript('');
+              }, 2500);
+            }
           },
           onVolumeChange: (vol) => {
             setMicVolume(vol);
+          },
+          onOutputAudioIntensity: (intensity) => {
+            setOutputAudioIntensity(intensity);
+          },
+          onTranscript: (text, isModel) => {
+            if (isModel) {
+              setLiveTranscript((prev) => prev + text);
+              setIsLiveCaptionsVisible(true);
+            }
           },
           onError: (err) => {
             console.warn('[Morix App] Information flux Live :', err?.message || err);
           },
           onToolCall: async (call) => {
+            if (call.name === 'afficher_ecran') {
+              const data: VisualCanvasData = {
+                type: call.args?.type || 'texte',
+                titre: call.args?.titre,
+                contenu: call.args?.contenu,
+                items: Array.isArray(call.args?.items) ? call.args.items : undefined,
+                langue: call.args?.langue,
+                duree: call.args?.duree,
+                position: call.args?.position,
+              };
+              setVisualCanvasData(data);
+              return {
+                status: 'success',
+                type: data.type,
+                titre: data.titre,
+                message: `L'écran [${data.type.toUpperCase()}] "${data.titre || ''}" a été affiché avec succès à l'écran.`,
+              };
+            }
+            if (call.name === 'effacer_ecran') {
+              setVisualCanvasData(null);
+              return {
+                status: 'success',
+                message: "L'écran visuel a été effacé avec succès.",
+              };
+            }
             if (call.name === 'ouvrir_fenetre') {
               return handleOpenModularWindow({
                 type: call.args?.type,
@@ -501,6 +551,25 @@ export default function App() {
     return () => unsub();
   }, []);
 
+  // Écouteur d'événement pour tests visuels automatisés
+  useEffect(() => {
+    const handleTestVisual = (e: any) => {
+      if (e.detail?.type === 'afficher_ecran') {
+        setVisualCanvasData(e.detail.data);
+      } else if (e.detail?.type === 'effacer_ecran') {
+        setVisualCanvasData(null);
+      } else if (e.detail?.type === 'captions') {
+        setLiveTranscript(e.detail.text);
+        setIsLiveCaptionsVisible(true);
+      } else if (e.detail?.type === 'clear_captions') {
+        setIsLiveCaptionsVisible(false);
+        setLiveTranscript('');
+      }
+    };
+    window.addEventListener('morix:test-visual', handleTestVisual);
+    return () => window.removeEventListener('morix:test-visual', handleTestVisual);
+  }, []);
+
   const handleOpenStandalone = () => {
     if (typeof window !== 'undefined') {
       window.open(window.location.href, '_blank', 'noopener,noreferrer');
@@ -536,8 +605,25 @@ export default function App() {
 
       {/* Central 3D Particle Orb (Piloted strictly by real-time audio stream) */}
       <div id="orb-container">
-        <ParticleOrb state={effectiveOrbState} transparentBackground={transparentBackground} />
+        <ParticleOrb
+          state={effectiveOrbState}
+          transparentBackground={transparentBackground}
+          audioIntensity={outputAudioIntensity}
+        />
       </div>
+
+      {/* Visual Canvas pour l'autonomie visuelle en direct de Morix */}
+      <VisualCanvas
+        data={visualCanvasData}
+        onClose={() => setVisualCanvasData(null)}
+        isOrbSpeaking={effectiveOrbState === 'speaking'}
+      />
+
+      {/* Sous-titres live synchronisés avec l'élocution de Morix */}
+      <LiveCaptions
+        text={liveTranscript}
+        isVisible={isLiveCaptionsVisible && (effectiveOrbState === 'speaking' || liveTranscript.length > 0)}
+      />
 
       {/* Les fenêtres Dashboard sont maintenant de vraies fenêtres Electron natives gérées par le main process */}
 
@@ -1304,6 +1390,141 @@ export default function App() {
               <line x1="12" y1="9" x2="12" y2="13" />
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
+          </button>
+
+          {/* Séparateur pour tests autonomie visuelle */}
+          <div
+            style={{
+              width: '1px',
+              height: '16px',
+              backgroundColor: 'rgba(255, 255, 255, 0.15)',
+              margin: '0 2px',
+            }}
+          />
+
+          {/* Test Visuel : Afficher écran de code */}
+          <button
+            type="button"
+            onClick={() => {
+              setVisualCanvasData({
+                type: 'code',
+                titre: 'Exemple de Code Synchronisé',
+                contenu: 'async function synchroniserVisuel() {\n  console.log("Morix affiche en direct !");\n  return true;\n}',
+                langue: 'typescript',
+                position: 'droite',
+              });
+            }}
+            title="Test Visuel : afficher écran de code à droite"
+            aria-label="Tester écran code"
+            style={{
+              background: 'rgba(99, 102, 241, 0.22)',
+              border: '1px solid rgba(99, 102, 241, 0.55)',
+              color: '#A5B4FC',
+              width: '26px',
+              height: '26px',
+              padding: 0,
+              borderRadius: '9999px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '11px',
+              fontWeight: 600,
+            }}
+          >
+            &lt;/&gt;
+          </button>
+
+          {/* Test Visuel : Afficher étapes */}
+          <button
+            type="button"
+            onClick={() => {
+              setVisualCanvasData({
+                type: 'etapes',
+                titre: 'Étapes du Projet',
+                items: [
+                  '1. Initialisation de la session Gemini Live',
+                  '2. Détection de la voix et analyse acoustique',
+                  '3. Affichage visuel synchronisé en direct',
+                ],
+                position: 'centre',
+              });
+            }}
+            title="Test Visuel : afficher étapes au centre"
+            aria-label="Tester écran étapes"
+            style={{
+              background: 'rgba(16, 185, 129, 0.22)',
+              border: '1px solid rgba(16, 185, 129, 0.55)',
+              color: '#6EE7B7',
+              width: '26px',
+              height: '26px',
+              padding: 0,
+              borderRadius: '9999px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '11px',
+              fontWeight: 600,
+            }}
+          >
+            123
+          </button>
+
+          {/* Test Visuel : Sous-titres live */}
+          <button
+            type="button"
+            onClick={() => {
+              setLiveTranscript("Voici un exemple de sous-titres générés en direct pendant l'élocution de Morix.");
+              setIsLiveCaptionsVisible(true);
+            }}
+            title="Test Visuel : simuler sous-titres live"
+            aria-label="Tester sous-titres"
+            style={{
+              background: 'rgba(236, 72, 153, 0.22)',
+              border: '1px solid rgba(236, 72, 153, 0.55)',
+              color: '#F472B6',
+              width: '26px',
+              height: '26px',
+              padding: 0,
+              borderRadius: '9999px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '11px',
+              fontWeight: 600,
+            }}
+          >
+            CC
+          </button>
+
+          {/* Test Visuel : Effacer l'écran */}
+          <button
+            type="button"
+            onClick={() => {
+              setVisualCanvasData(null);
+              setIsLiveCaptionsVisible(false);
+              setLiveTranscript('');
+            }}
+            title="Test Visuel : effacer écran et sous-titres"
+            aria-label="Effacer écran test"
+            style={{
+              background: 'rgba(255, 255, 255, 0.1)',
+              border: '1px solid rgba(255, 255, 255, 0.3)',
+              color: '#FFFFFF',
+              width: '26px',
+              height: '26px',
+              padding: 0,
+              borderRadius: '9999px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '12px',
+            }}
+          >
+            ∅
           </button>
         </div>
       )}

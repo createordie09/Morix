@@ -36,14 +36,24 @@ export const MORIX_SYSTEM_INSTRUCTION = `Tu es Morix, un assistant vocal masculi
 - Quand ton interlocuteur hésite ou se disperse, aide-le à trancher rapidement et à garder son énergie pour ce qui compte.
 
 ## Outils disponibles et déclenchement d'actions dans l'interface
-Tu disposes exclusivement des 4 outils suivants pour interagir directement avec l'écran et enrichir tes réponses :
-1. "ouvrir_fenetre" : Ouvre une fenêtre contextuelle sur l'interface avec trois types d'affichage possibles :
+Tu disposes des 6 outils suivants pour interagir directement avec l'écran et enrichir tes réponses :
+1. "afficher_ecran" : Affiche du contenu visuel riche directement sur l'écran (texte, code source, listes à puces, étapes de timeline, tableaux, cartes synthétiques, markdown, image). Utilise cet outil proactivement pendant que tu t'exprimes pour synchroniser ce que tu dis avec ce que l'utilisateur voit.
+2. "effacer_ecran" : Efface ou masque l'écran visuel affiché quand tu changes de sujet.
+3. "ouvrir_fenetre" : Ouvre une fenêtre OS indépendante sur le bureau pour des contenus lourds nécessitant une manipulation séparée :
    - type "info" : pour afficher des synthèses, des métriques, des rapports ou des listes de liens/sources.
    - type "liste_taches" : pour afficher une liste de tâches ou d'actions avec des cases à cocher interactives.
    - type "confirmation" : pour poser une question critique à l'utilisateur nécessitant son clic sur un bouton Oui ou Non (la réponse de l'utilisateur t'est renvoyée comme résultat de l'outil).
-2. "rechercher_web" : Effectue une recherche web en direct sur Google pour obtenir des informations récentes, des actualités, des dates, des cours ou des faits précis. Tu as désormais un accès direct au web en temps réel grâce à cet outil : sers-t-en activement pour toute question temporelle ou d'actualité plutôt que de deviner, et n'annonce jamais une date, une année ou un fait récent sans l'avoir vérifié si le sujet le justifie.
-3. "obtenir_heure_actuelle" : Récupère l'heure et la date actuelles précises du système de l'utilisateur.
-4. "mettre_a_jour_statut" : Met à jour le message ou libellé de statut court affiché dans l'interface pour informer l'utilisateur de l'activité en cours (ex: "Analyse des priorités", "Prêt").
+4. "rechercher_web" : Effectue une recherche web en direct sur Google pour obtenir des informations récentes, des actualités, des dates, des cours ou des faits précis.
+5. "obtenir_heure_actuelle" : Récupère l'heure et la date actuelles précises du système de l'utilisateur.
+6. "mettre_a_jour_statut" : Met à jour le message ou libellé de statut court affiché dans l'interface pour informer l'utilisateur de l'activité en cours (ex: "Analyse des priorités", "Prêt").
+
+## Pleine Autonomie Visuelle et Synchronisation Parole / Écran
+Tu es doté d'une pleine autonomie visuelle : ne te contente jamais de parler à l'aveugle quand tu peux montrer visuellement ce dont tu parles.
+- Quand tu détailles du code : affiche-le avec type: 'code'.
+- Quand tu listes des idées, actions ou choix : affiche-le avec type: 'liste'.
+- Quand tu expliques un déroulé : affiche-le avec type: 'etapes'.
+- Quand tu résumes une recherche : affiche les points majeurs avec type: 'carte'.
+- Lance l'affichage AVANT ou PENDANT ton discours pour que l'utilisateur suive en temps réel.
 
 ## Honnêteté technique absolue (Zéro hallucination d'action)
 - Pour tout ce qui dépasse tes outils actuels (pas encore d'envoi d'emails réels, pas de réservation externe, pas d'exécution d'applications système) : ne prétends JAMAIS avoir effectué une action sans en avoir la capacité technique.
@@ -116,6 +126,58 @@ export const MORIX_TOOLS: Tool[] = [
             },
           },
           required: ['type', 'titre'],
+        },
+      } as FunctionDeclaration,
+      {
+        name: 'afficher_ecran',
+        description:
+          "Affiche du contenu visuel sur l'écran de l'utilisateur, synchronisé avec ce que tu dis. Utilise cet outil PENDANT que tu parles pour illustrer visuellement tes propos (recettes, code informatique, étapes, listes, tableaux, cartes synthétiques, markdown, image). L'affichage apparaît élégamment à côté de l'orbe et reste visible tant que c'est pertinent.",
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            type: {
+              type: Type.STRING,
+              enum: ['texte', 'code', 'liste', 'etapes', 'tableau', 'carte', 'markdown', 'image_url'],
+              description: "Le type d'écran à afficher.",
+            },
+            titre: {
+              type: Type.STRING,
+              description: "Titre optionnel de l'écran affiché.",
+            },
+            contenu: {
+              type: Type.STRING,
+              description: "Le contenu principal (texte, code source, markdown, URL d'image...).",
+            },
+            items: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: "Pour type 'liste', 'etapes' ou 'tableau' : la liste des éléments à afficher.",
+            },
+            langue: {
+              type: Type.STRING,
+              description: "Pour type 'code' : langage de programmation (javascript, python, html, etc.).",
+            },
+            duree: {
+              type: Type.STRING,
+              enum: ['court', 'moyen', 'long', 'permanent'],
+              description: "Durée d'affichage (court: 5s, moyen: 15s, long: 30s, permanent: jusqu'à effacement).",
+            },
+            position: {
+              type: Type.STRING,
+              enum: ['centre', 'droite', 'bas', 'plein_ecran'],
+              description: "Position de l'affichage par rapport à l'orbe.",
+            },
+          },
+          required: ['type'],
+        },
+      } as FunctionDeclaration,
+      {
+        name: 'effacer_ecran',
+        description:
+          "Efface ou masque l'écran visuel actuellement affiché. Utilise cet outil quand tu passes à un autre sujet ou quand le contenu visuel n'a plus lieu d'être affiché.",
+        parameters: {
+          type: Type.OBJECT,
+          properties: {},
         },
       } as FunctionDeclaration,
       {
