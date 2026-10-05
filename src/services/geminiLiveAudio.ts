@@ -77,6 +77,15 @@ declare global {
       getApiKeyStatus?: () => Promise<{ hasKey: boolean; isFromEnv: boolean; maskedKey: string }>;
       saveApiKey?: (apiKey: string) => Promise<{ success: boolean; maskedKey?: string; message?: string }>;
       clearApiKey?: () => Promise<{ success: boolean }>;
+      captureScreen?: () => Promise<{ success: boolean; dataUrl?: string; error?: string }>;
+      analyzeScreen?: (question?: string) => Promise<{ status: string; analyse?: string; message?: string; horodatage?: string }>;
+      openApplication?: (nomOuUrl: string) => Promise<{ success: boolean; message: string }>;
+      openFolder?: (chemin: string) => Promise<{ success: boolean; message: string }>;
+      executeCommand?: (commande: string) => Promise<{ success: boolean; stdout?: string; stderr?: string; error?: string }>;
+      setWindowMode?: (mode: 'standard' | 'mini' | 'sidebar') => Promise<{ mode: string }>;
+      onWindowModeChanged?: (callback: (data: { mode: string }) => void) => () => void;
+      scheduleReminder?: (delaiSecondes: number, message: string) => Promise<{ success: boolean; id: string }>;
+      onProactiveAlert?: (callback: (data: { message: string; titre?: string }) => void) => () => void;
       onError: (callback: (errMsg: string) => void) => () => void;
       onConversationTurns: (
         callback: (turns: string[]) => void

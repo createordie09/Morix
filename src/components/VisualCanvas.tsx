@@ -1,10 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 
+export interface MetricItem {
+  label: string;
+  valeur: string;
+  variation?: string;
+  isPositive?: boolean;
+}
+
 export interface VisualCanvasData {
-  type: 'texte' | 'code' | 'liste' | 'etapes' | 'tableau' | 'carte' | 'markdown' | 'image_url';
+  type: 'texte' | 'code' | 'liste' | 'etapes' | 'tableau' | 'carte' | 'markdown' | 'image_url' | 'diagramme' | 'metriques';
   titre?: string;
   contenu?: string;
   items?: string[];
+  metriques?: MetricItem[];
   langue?: string;
   duree?: 'court' | 'moyen' | 'long' | 'permanent';
   position?: 'centre' | 'droite' | 'bas' | 'plein_ecran';
@@ -309,6 +317,105 @@ const VisualCanvas: React.FC<VisualCanvasProps> = ({ data, onClose, isOrbSpeakin
             />
           </div>
         );
+
+      case 'diagramme': {
+        const rawItems = currentData.items || [];
+        const parsedBars = rawItems.map((item, idx) => {
+          const delimiter = item.includes('|') ? '|' : ':';
+          const parts = item.split(delimiter);
+          const label = parts[0]?.trim() || `Série ${idx + 1}`;
+          const numStr = parts[1]?.trim().replace('%', '') || '50';
+          const val = Math.min(100, Math.max(5, parseFloat(numStr) || 50));
+          return { label, val, raw: parts[1]?.trim() || `${val}%` };
+        });
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {parsedBars.map((bar, i) => (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>
+                  <span>{bar.label}</span>
+                  <span style={{ fontWeight: 600, color: '#A5B4FC' }}>{bar.raw}</span>
+                </div>
+                <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${bar.val}%`,
+                      background: 'linear-gradient(90deg, #6366f1, #a855f7)',
+                      transition: 'width 800ms ease-out',
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      }
+
+      case 'metriques': {
+        const items = currentData.metriques || (currentData.items || []).map((it) => {
+          if (it.includes('|')) {
+            const parts = it.split('|').map((p) => p.trim());
+            const label = parts[0] || 'Métrique';
+            const valeur = parts[1] || '0';
+            const variation = parts[2] || undefined;
+            return {
+              label,
+              valeur,
+              variation,
+              isPositive: !variation?.startsWith('-'),
+            };
+          }
+          const [label, ...valParts] = it.split(':');
+          const fullVal = valParts.join(':').trim();
+          const varMatch = fullVal.match(/\((.*?)\)/);
+          const variation = varMatch ? varMatch[1] : undefined;
+          const cleanVal = fullVal.replace(/\(.*?\)/, '').trim();
+          return {
+            label: label.trim(),
+            valeur: cleanVal || '0',
+            variation,
+            isPositive: !variation?.startsWith('-'),
+          };
+        });
+
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
+            {items.map((m, i) => (
+              <div
+                key={i}
+                style={{
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  padding: '12px 14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                }}
+              >
+                <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: 'rgba(255,255,255,0.5)' }}>
+                  {m.label}
+                </div>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.5px' }}>
+                  {m.valeur}
+                </div>
+                {m.variation && (
+                  <div
+                    style={{
+                      fontSize: '11px',
+                      color: m.isPositive ? '#34D399' : '#F87171',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {m.variation}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        );
+      }
 
       default:
         return null;

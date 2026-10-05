@@ -8,9 +8,10 @@
 
 require('dotenv').config();
 
-const { app, BrowserWindow, Menu, session, ipcMain, globalShortcut, Tray, nativeImage } = require('electron');
+const { app, BrowserWindow, Menu, session, ipcMain, globalShortcut, Tray, nativeImage, desktopCapturer, shell, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { exec } = require('child_process');
 const { pathToFileURL } = require('url');
 
 // ── Désactivation du menu par défaut ──────────────────────────────────────
@@ -141,7 +142,7 @@ const MORIX_TOOLS = [
           properties: {
             type: {
               type: 'STRING',
-              enum: ['texte', 'code', 'liste', 'etapes', 'tableau', 'carte', 'markdown', 'image_url'],
+              enum: ['texte', 'code', 'liste', 'etapes', 'tableau', 'carte', 'markdown', 'image_url', 'diagramme', 'metriques'],
               description: "Le type d'écran à afficher.",
             },
             titre: {
@@ -155,7 +156,7 @@ const MORIX_TOOLS = [
             items: {
               type: 'ARRAY',
               items: { type: 'STRING' },
-              description: "Pour type 'liste', 'etapes' ou 'tableau' : la liste des éléments à afficher.",
+              description: "Pour type 'liste', 'etapes', 'tableau', 'diagramme' ou 'metriques' : les éléments à afficher.",
             },
             langue: {
               type: 'STRING',
@@ -185,6 +186,96 @@ const MORIX_TOOLS = [
         },
       },
       {
+        name: 'analyser_ecran',
+        description:
+          "Capture et analyse l'écran actuel de l'utilisateur pour voir ce sur quoi il travaille en direct (code, bug de terminal, page web, document, design). Utilise cet outil dès que l'utilisateur dit 'regarde mon écran', 'analyse ce code', 'd'où vient cette erreur' ou fait référence à ce qu'il a sous les yeux.",
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            question: {
+              type: 'STRING',
+              description: "Précision sur ce qu'il faut analyser ou question spécifique posée par l'utilisateur.",
+            },
+          },
+        },
+      },
+      {
+        name: 'ouvrir_application',
+        description:
+          "Lance une application installée sur l'ordinateur ou ouvre une adresse web dans le navigateur par défaut (ex: 'code', 'chrome', 'spotify', 'notepad', 'calc', 'https://github.com').",
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            nom_ou_url: {
+              type: 'STRING',
+              description: "Le nom de l'application ou l'URL à ouvrir.",
+            },
+          },
+          required: ['nom_ou_url'],
+        },
+      },
+      {
+        name: 'ouvrir_dossier',
+        description: "Ouvre un dossier spécifique dans l'explorateur de fichiers de l'utilisateur.",
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            chemin: {
+              type: 'STRING',
+              description: "Le nom ou chemin du dossier (ex: 'projets', 'téléchargements', 'documents' ou chemin absolu).",
+            },
+          },
+          required: ['chemin'],
+        },
+      },
+      {
+        name: 'executer_commande',
+        description: "Exécute une commande système en ligne de commande (PowerShell sur Windows / Shell sur Mac).",
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            commande: {
+              type: 'STRING',
+              description: "La commande shell à exécuter.",
+            },
+          },
+          required: ['commande'],
+        },
+      },
+      {
+        name: 'changer_mode_fenetre',
+        description: "Bascule la fenêtre de Morix dans un mode d'affichage adapté : 'mini' (mini-orbe discret dans un coin), 'sidebar' (barre latérale ancrée sur le côté de l'écran), ou 'standard' (mode normal).",
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            mode: {
+              type: 'STRING',
+              enum: ['standard', 'mini', 'sidebar'],
+              description: "Le mode d'affichage souhaité.",
+            },
+          },
+          required: ['mode'],
+        },
+      },
+      {
+        name: 'programmer_rappel',
+        description: "Programme un rappel ou une alerte proactive. À l'échéance du délai, Morix prendra la parole de manière proactive pour notifier l'utilisateur.",
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            delai_secondes: {
+              type: 'NUMBER',
+              description: "Le délai en secondes avant de déclencher le rappel.",
+            },
+            message: {
+              type: 'STRING',
+              description: "Le message ou motif du rappel.",
+            },
+          },
+          required: ['delai_secondes', 'message'],
+        },
+      },
+      {
         name: 'obtenir_heure_actuelle',
         description: "Retourne l'heure et la date actuelles précises du système de l'utilisateur.",
         parameters: { type: 'OBJECT', properties: {} },
@@ -204,7 +295,7 @@ const MORIX_TOOLS = [
   },
 ];
 
-const MORIX_SYSTEM_INSTRUCTION = `Tu es Morix, un assistant vocal et visuel masculin intelligent, vif et complice.
+const MORIX_SYSTEM_INSTRUCTION = `Tu es Morix, un assistant vocal, visuel et opérateur système intelligent, vif et complice.
 
 ## Rôle et Identité
 - Tu t'appelles Morix (genre masculin).
@@ -216,29 +307,25 @@ const MORIX_SYSTEM_INSTRUCTION = `Tu es Morix, un assistant vocal et visuel masc
 - Évite les énumérations artificielles et les pavés explicatifs trop denses à l'oral : utilise l'écran pour afficher les détails !
 - Utilise un ton complice, détendu mais toujours orienté résultat.
 
-## Pleine Autonomie Visuelle et Synchronisation Parole / Écran
-Tu es doté d'une pleine autonomie visuelle : tu peux afficher des écrans en direct synchronisés avec ce que tu dis grâce à l'outil 'afficher_ecran'.
-- Quand tu expliques quelque chose, MONTRE-LE en direct :
-  * Si tu expliques ou génères du code : affiche-le avec type: 'code' pendant que tu en parles.
-  * Si tu donnes des consignes ou une procédure : affiche les étapes avec type: 'etapes'.
-  * Si tu listes des points, des options ou des idées : affiche type: 'liste'.
-  * Si tu compares des données : affiche type: 'tableau'.
-  * Si tu présentes une synthèse ou une info clé : affiche type: 'carte'.
-- Synchronise ton affichage : appelle 'afficher_ecran' PENDANT que tu t'exprimes pour que l'utilisateur visualise en même temps qu'il t'entend.
-- Efface l'écran avec 'effacer_ecran' quand tu changes complètement de sujet.
-- Pour des fenêtres OS indépendantes lourdes (tâches avec cases à cocher, confirmation Oui/Non), utilise 'ouvrir_fenetre'.
+## Pleine Autonomie Visuelle et Proactivité
+Tu as une pleine autonomie sur l'écran et le système :
+1. **Vision d'écran ('analyser_ecran')** : Dès que l'utilisateur te demande de regarder ce qu'il a à l'écran, capture-le et donne une analyse précise et rapide.
+2. **Affichage synchronisé ('afficher_ecran')** : MONTRE toujours visuellement ce dont tu parles (code, diagrammes à barres, KPIs métriques, listes, étapes, tableaux).
+3. **Pilotage OS ('ouvrir_application', 'ouvrir_dossier', 'executer_commande')** : Tu peux lancer des applications, ouvrir des dossiers et exécuter des tâches système sur demande.
+4. **Mode fenêtre ('changer_mode_fenetre')** : Tu peux te réduire en mini-widget discret ('mini') ou t'ancrer en barre latérale ('sidebar') si l'utilisateur veut te garder sous les yeux pendant qu'il travaille.
+5. **Rappels proactifs ('programmer_rappel')** : Tu peux programmer des alertes et intervenir vocalement de façon autonome quand le délai est écoulé.
 
 ## Bilinguisme (Français / Anglais)
 - Tu es parfaitement bilingue français et anglais.
 - Tu réponds naturellement dans la langue utilisée par l'utilisateur.
 
 ## Outils disponibles
-Tu disposes de 6 outils : afficher_ecran, effacer_ecran, ouvrir_fenetre, rechercher_web, obtenir_heure_actuelle, mettre_a_jour_statut.
+Tu disposes de 11 outils : analyser_ecran, ouvrir_application, ouvrir_dossier, executer_commande, changer_mode_fenetre, programmer_rappel, afficher_ecran, effacer_ecran, ouvrir_fenetre, rechercher_web, obtenir_heure_actuelle, mettre_a_jour_statut.
 
 ## Honnêteté technique absolue
 Pour tout ce qui dépasse tes outils actuels, ne prétends JAMAIS avoir effectué une action sans en avoir la capacité technique.
 
-Reste authentique, réactif, visuel et va toujours droit au but.`;
+Reste authentique, réactif, visuel, proactif et va toujours droit au but.`;
 
 // ── État de la session Live ───────────────────────────────────────────────
 let activeSession = null;
@@ -994,6 +1081,182 @@ ipcMain.handle('dashboard:confirm-choice', async (_event, { id, choice }) => {
     data.confirmation.choice = choice;
   }
   return { confirmed: true };
+});
+
+// ── Desktop Vision & Analyse Multimodale ─────────────────────────────────
+async function analyserEcranMultimodal(question = "Que vois-tu à l'écran ?") {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 1280, height: 720 },
+    });
+    if (!sources || sources.length === 0) {
+      return { status: 'erreur', message: 'Aucun écran accessible pour la capture.' };
+    }
+    const pngBuffer = sources[0].thumbnail.toPNG();
+    const base64Image = pngBuffer.toString('base64');
+
+    const client = await getGeminiClient();
+    const prompt = `Voici une capture d'écran du bureau de l'utilisateur. Analyse précisément ce qui est affiché. ${question ? `Demande spécifique de l'utilisateur : "${question}".` : ''} Réponds de façon percutante, concrète et concise (2 à 3 phrases claires maximum) pour que ce soit facilement communicable à l'oral.`;
+
+    const response = await client.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: 'image/png',
+                data: base64Image,
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const analysisText = response.text || "Analyse d'écran effectuée.";
+    console.log('[Morix Vision] Analyse d\'écran réussie :', analysisText.slice(0, 100));
+    return {
+      status: 'success',
+      analyse: analysisText,
+      horodatage: new Date().toLocaleTimeString('fr-FR'),
+    };
+  } catch (err) {
+    console.error('[Morix Vision] Erreur analyse d\'écran multimodale :', err);
+    return { status: 'erreur', message: `Échec de l'analyse : ${err.message}` };
+  }
+}
+
+ipcMain.handle('screen:capture-active', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 1280, height: 720 },
+    });
+    if (sources && sources.length > 0) {
+      const dataUrl = sources[0].thumbnail.toDataURL();
+      return { success: true, dataUrl };
+    }
+    return { success: false, error: 'Aucun écran détecté' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('morix:analyze-screen', async (_event, question) => {
+  return analyserEcranMultimodal(question);
+});
+
+// ── Pilotage Système (Applications, Dossiers, Commandes) ──────────────────
+ipcMain.handle('system:open-app', async (_event, target) => {
+  try {
+    if (!target) return { success: false, message: 'Cible manquante' };
+    const cleaned = String(target).trim();
+    if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
+      await shell.openExternal(cleaned);
+      return { success: true, message: `URL ouverte dans le navigateur : ${cleaned}` };
+    }
+    const cmd = process.platform === 'win32' ? `start "" "${cleaned}"` : `open "${cleaned}"`;
+    exec(cmd, (err) => {
+      if (err) console.warn('[Morix Main] Launch error :', err.message);
+    });
+    return { success: true, message: `Lancement de "${cleaned}" exécuté.` };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+});
+
+ipcMain.handle('system:open-folder', async (_event, folderPath) => {
+  try {
+    let resolved = String(folderPath || '').trim();
+    if (resolved === 'projets' || resolved === 'projects') {
+      resolved = path.join(process.env.USERPROFILE || 'C:\\Users\\DELL', 'Documents');
+    } else if (resolved === 'downloads' || resolved === 'téléchargements') {
+      resolved = app.getPath('downloads');
+    } else if (resolved === 'documents') {
+      resolved = app.getPath('documents');
+    }
+    await shell.openPath(resolved);
+    return { success: true, message: `Dossier ouvert : ${resolved}` };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+});
+
+ipcMain.handle('system:execute-command', async (_event, command) => {
+  return new Promise((resolve) => {
+    exec(command, { timeout: 15000 }, (error, stdout, stderr) => {
+      if (error) {
+        resolve({ success: false, error: error.message, stdout, stderr });
+      } else {
+        resolve({ success: true, stdout, stderr });
+      }
+    });
+  });
+});
+
+// ── Gestion Dynamique des Modes de Fenêtre ──────────────────────────────
+function changerModeFenetre(mode) {
+  if (!mainWindow || mainWindow.isDestroyed()) return { mode: 'standard' };
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
+
+  if (mode === 'mini') {
+    mainWindow.setSize(220, 220);
+    mainWindow.setPosition(screenWidth - 250, screenHeight - 260);
+    mainWindow.setAlwaysOnTop(true);
+    sendToRenderer('window:mode-changed', { mode: 'mini' });
+    return { mode: 'mini' };
+  } else if (mode === 'sidebar') {
+    mainWindow.setSize(380, screenHeight);
+    mainWindow.setPosition(screenWidth - 380, 0);
+    mainWindow.setAlwaysOnTop(true);
+    sendToRenderer('window:mode-changed', { mode: 'sidebar' });
+    return { mode: 'sidebar' };
+  } else {
+    mainWindow.setSize(800, 600);
+    mainWindow.center();
+    mainWindow.setAlwaysOnTop(false);
+    sendToRenderer('window:mode-changed', { mode: 'standard' });
+    return { mode: 'standard' };
+  }
+}
+
+ipcMain.handle('window:set-mode', async (_event, mode) => {
+  return changerModeFenetre(mode);
+});
+
+// ── Planificateur de Rappels et Alertes Proactives ────────────────────────
+const scheduledRemindersMap = new Map();
+ipcMain.handle('morix:schedule-reminder', async (_event, { delaiSecondes, message }) => {
+  const reminderId = `remind_${Date.now()}`;
+  const ms = Math.max(1000, Number(delaiSecondes || 10) * 1000);
+
+  const timer = setTimeout(() => {
+    console.log(`[Morix Proactive] Rappel échu : "${message}"`);
+    sendToRenderer('morix:proactive-alert', {
+      id: reminderId,
+      message,
+      titre: 'Rappel Proactif Morix',
+    });
+
+    if (activeSession && isSessionRunning) {
+      try {
+        activeSession.sendRealtimeInput({
+          text: `[ALERTE PROACTIVE AUTONOME] Le rappel prévu est maintenant échu : "${message}". Prends immédiatement la parole vocalement pour informer l'utilisateur avec dynamisme et clarté.`,
+        });
+      } catch (liveErr) {
+        console.warn('[Morix Proactive] Erreur notification vocale session :', liveErr.message);
+      }
+    }
+    scheduledRemindersMap.delete(reminderId);
+  }, ms);
+
+  scheduledRemindersMap.set(reminderId, timer);
+  return { success: true, id: reminderId, delaiSecondes };
 });
 
 // ── Gestionnaire de l'Icône System Tray ──────────────────────────────────
@@ -1814,8 +2077,82 @@ async function createWindow() {
           fs.writeFileSync(screenshotEtapes, imgEtapes.toPNG());
           console.log('[Test-Visual] Capture écran étapes sauvegardée :', screenshotEtapes);
 
-          // 4. Test d'effacement de l'écran (effacer_ecran)
-          console.log('[Test-Visual] 4. Test d\'effacement de l\'écran...');
+          // 4. Test du Visual Canvas : Affichage d'un Diagramme (bar chart interactif)
+          console.log('[Test-Visual] 4. Test d\'affichage d\'un diagramme...');
+          await mainWindow.webContents.executeJavaScript(`
+            window.dispatchEvent(new CustomEvent('morix:test-visual', {
+              detail: {
+                type: 'afficher_ecran',
+                data: {
+                  type: 'diagramme',
+                  titre: 'Utilisation Ressources & IA',
+                  items: ['CPU|42%', 'Mémoire|68%', 'GPU|29%', 'Réseau|85%'],
+                  position: 'droite',
+                }
+              }
+            }));
+          `);
+
+          await new Promise((r) => setTimeout(r, 800));
+
+          const screenshotDiagramme = path.join(brainDir, 'screenshot_visual_diagramme.png');
+          const imgDiagramme = await mainWindow.webContents.capturePage();
+          fs.writeFileSync(screenshotDiagramme, imgDiagramme.toPNG());
+          console.log('[Test-Visual] Capture écran diagramme sauvegardée :', screenshotDiagramme);
+
+          // 5. Test du Visual Canvas : Affichage de Métriques / KPIs
+          console.log('[Test-Visual] 5. Test d\'affichage de métriques/KPIs...');
+          await mainWindow.webContents.executeJavaScript(`
+            window.dispatchEvent(new CustomEvent('morix:test-visual', {
+              detail: {
+                type: 'afficher_ecran',
+                data: {
+                  type: 'metriques',
+                  titre: 'Indicateurs de Performance',
+                  items: [
+                    'Latence Audio|18ms|-4ms|bonne',
+                    'Requêtes|1420|+12%|hausse',
+                    'Disponibilité|99.9%|Nominal|bonne',
+                    'Tokens/s|86|+9|hausse',
+                  ],
+                  position: 'droite',
+                }
+              }
+            }));
+          `);
+
+          await new Promise((r) => setTimeout(r, 800));
+
+          const screenshotMetriques = path.join(brainDir, 'screenshot_visual_metriques.png');
+          const imgMetriques = await mainWindow.webContents.capturePage();
+          fs.writeFileSync(screenshotMetriques, imgMetriques.toPNG());
+          console.log('[Test-Visual] Capture écran métriques sauvegardée :', screenshotMetriques);
+
+          // 6. Test du basculement dynamique de mode fenêtre (mini -> standard)
+          console.log('[Test-Visual] 6. Test du mode mini widget (220x220)...');
+          changerModeFenetre('mini');
+          await new Promise((r) => setTimeout(r, 800));
+
+          const screenshotMini = path.join(brainDir, 'screenshot_visual_mini.png');
+          const imgMini = await mainWindow.webContents.capturePage();
+          fs.writeFileSync(screenshotMini, imgMini.toPNG());
+          console.log('[Test-Visual] Capture écran mode mini sauvegardée :', screenshotMini);
+
+          console.log('[Test-Visual] Rétablissement du mode standard...');
+          changerModeFenetre('standard');
+          await new Promise((r) => setTimeout(r, 600));
+
+          // 7. Test de programmation d'alerte proactive
+          console.log('[Test-Visual] 7. Test de rappel proactif...');
+          sendToRenderer('morix:proactive-alert', {
+            id: 'test_alert',
+            message: 'Alerte autonome : Rappel de synchronisation vérifié.',
+            titre: 'Alerte Proactive Morix',
+          });
+          await new Promise((r) => setTimeout(r, 600));
+
+          // 8. Test d'effacement de l'écran (effacer_ecran)
+          console.log('[Test-Visual] 8. Test d\'effacement de l\'écran...');
           await mainWindow.webContents.executeJavaScript(`
             window.dispatchEvent(new CustomEvent('morix:test-visual', {
               detail: {
@@ -1826,7 +2163,7 @@ async function createWindow() {
 
           await new Promise((r) => setTimeout(r, 600));
 
-          console.log('[Test-Visual] TOUS LES TESTS D\'AUTONOMIE VISUELLE SONT VALIDÉS AVEC SUCCÈS !');
+          console.log('[Test-Visual] TOUS LES TESTS D\'AUTONOMIE VISUELLE, DE MODES ET DE PROACTIVITÉ SONT VALIDÉS AVEC SUCCÈS !');
           if (autoExit) {
             isQuitting = true;
             app.quit();

@@ -49,6 +49,7 @@ export default function App() {
   // Pleine Autonomie Visuelle et Synchronisation Parole / Écran
   const [visualCanvasData, setVisualCanvasData] = useState<VisualCanvasData | null>(null);
   const [outputAudioIntensity, setOutputAudioIntensity] = useState<number>(0);
+  const [windowMode, setWindowMode] = useState<'standard' | 'mini' | 'sidebar'>('standard');
 
   // Outils de test développeur masqués par défaut (accessible via raccourci secret Ctrl+Shift+D / Cmd+Shift+D)
   const [showDevTools, setShowDevTools] = useState(false);
@@ -382,11 +383,48 @@ export default function App() {
       handleCloseWindow(data.id);
     });
 
+    // Écouteur des alertes proactives autonomes (ex: rappels échus)
+    const unsubAlert = window.morixAPI.onProactiveAlert?.((alert) => {
+      console.log('[Morix App] Alerte proactive reçue :', alert);
+      setVisualCanvasData({
+        type: 'carte',
+        titre: alert.titre || 'Alerte Proactive Morix',
+        contenu: alert.message,
+        position: 'droite',
+        duree: 'moyen',
+      });
+    });
+
+    // Écouteur du changement de mode fenêtre ('standard', 'mini', 'sidebar')
+    const unsubMode = window.morixAPI.onWindowModeChanged?.((data: any) => {
+      const targetMode = typeof data === 'string' ? data : data?.mode;
+      if (targetMode === 'standard' || targetMode === 'mini' || targetMode === 'sidebar') {
+        console.log('[Morix App] Mode fenêtre changé :', targetMode);
+        setWindowMode(targetMode);
+      }
+    });
+
     return () => {
       unsubConfirmed?.();
       unsubClosed?.();
+      unsubAlert?.();
+      unsubMode?.();
     };
   }, []);
+
+  /**
+   * Bascule manuellement le mode de fenêtre Electron ('standard' | 'mini' | 'sidebar')
+   */
+  const handleSetWindowMode = async (mode: 'standard' | 'mini' | 'sidebar') => {
+    setWindowMode(mode);
+    if (typeof window !== 'undefined' && window.morixAPI?.setWindowMode) {
+      try {
+        await window.morixAPI.setWindowMode(mode);
+      } catch (err) {
+        console.warn('[Morix App] Erreur changement de mode fenêtre :', err);
+      }
+    }
+  };
 
   // Activation de Morix déclenchée par un clic utilisateur
   const handleActivateMorix = async () => {
@@ -414,6 +452,9 @@ export default function App() {
           },
           onToolCall: async (call) => {
             if (call.name === 'afficher_ecran') {
+              if (windowMode === 'mini') {
+                handleSetWindowMode('standard');
+              }
               const data: VisualCanvasData = {
                 type: call.args?.type || 'texte',
                 titre: call.args?.titre,
@@ -446,6 +487,91 @@ export default function App() {
                 question: call.args?.question,
                 description: call.args?.description,
               });
+            }
+            if (call.name === 'analyser_ecran') {
+              const question = String(call.args?.question || '').trim();
+              const result = await window.morixAPI?.analyzeScreen?.(question);
+              if (result?.status === 'success' && result.analyse) {
+                setVisualCanvasData({
+                  type: 'carte',
+                  titre: 'Analyse Écran en Direct',
+                  contenu: result.analyse,
+                  position: 'droite',
+                  duree: 'long',
+                });
+                return {
+                  status: 'success',
+                  analyse: result.analyse,
+                  horodatage: result.horodatage,
+                  message: `Capture d'écran et analyse multimodale réussies.`,
+                };
+              }
+              return {
+                status: 'erreur',
+                message: result?.message || "Impossible de capturer ou analyser l'écran.",
+              };
+            }
+            if (call.name === 'ouvrir_application') {
+              const appTarget = String(call.args?.nom_ou_url || '').trim();
+              const res = await window.morixAPI?.openApplication?.(appTarget);
+              return {
+                status: res?.success ? 'success' : 'erreur',
+                message: res?.message || `Lancement de "${appTarget}".`,
+              };
+            }
+            if (call.name === 'ouvrir_dossier') {
+              const folderTarget = String(call.args?.chemin || '').trim();
+              const res = await window.morixAPI?.openFolder?.(folderTarget);
+              return {
+                status: res?.success ? 'success' : 'erreur',
+                message: res?.message || `Ouverture du dossier "${folderTarget}".`,
+              };
+            }
+            if (call.name === 'executer_commande') {
+              const cmd = String(call.args?.commande || '').trim();
+              const res = await window.morixAPI?.executeCommand?.(cmd);
+              if (res?.stdout) {
+                setVisualCanvasData({
+                  type: 'code',
+                  titre: `Exécution : ${cmd.slice(0, 30)}`,
+                  contenu: res.stdout,
+                  langue: 'shell',
+                  position: 'centre',
+                });
+              }
+              return {
+                status: res?.success ? 'success' : 'erreur',
+                stdout: res?.stdout,
+                stderr: res?.stderr,
+                error: res?.error,
+              };
+            }
+            if (call.name === 'changer_mode_fenetre') {
+              const targetMode = call.args?.mode as 'standard' | 'mini' | 'sidebar';
+              const res = await window.morixAPI?.setWindowMode?.(targetMode);
+              setWindowMode(targetMode);
+              return {
+                status: 'success',
+                mode: res?.mode || targetMode,
+                message: `Fenêtre basculée en mode "${targetMode}".`,
+              };
+            }
+            if (call.name === 'programmer_rappel') {
+              const delay = Number(call.args?.delai_secondes || 10);
+              const msg = String(call.args?.message || '').trim();
+              await window.morixAPI?.scheduleReminder?.(delay, msg);
+              setVisualCanvasData({
+                type: 'carte',
+                titre: 'Rappel Programmé',
+                contenu: `Morix vous préviendra dans ${delay} secondes : "${msg}"`,
+                position: 'droite',
+                duree: 'court',
+              });
+              return {
+                status: 'success',
+                delai: delay,
+                message: `Rappel programmé avec succès pour dans ${delay} secondes.`,
+              };
             }
             if (call.name === 'mettre_a_jour_statut') {
               const statut = String(call.args?.statut || '').trim();
@@ -570,7 +696,7 @@ export default function App() {
         backgroundColor: transparentBackground ? 'transparent' : '#000000',
       }}
     >
-      {/* Zone de glisser-déplacer invisible en haut de la fenêtre (Frameless Electron Drag Region) */}
+      {/* Zone supérieure de glisser-déplacer et sélecteur de mode de fenêtre */}
       <div
         className="window-drag-region"
         style={{
@@ -578,10 +704,121 @@ export default function App() {
           top: 0,
           left: 0,
           right: 0,
-          height: '36px',
-          zIndex: 35,
+          height: windowMode === 'mini' ? '28px' : '36px',
+          zIndex: 45,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: windowMode === 'mini' ? '0 8px' : '0 16px',
+          backgroundColor: 'rgba(10, 10, 14, 0.4)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
         }}
-      />
+      >
+        <span
+          style={{
+            fontSize: windowMode === 'mini' ? '10px' : '11px',
+            letterSpacing: '0.14em',
+            textTransform: 'uppercase',
+            color: 'rgba(255, 255, 255, 0.4)',
+            userSelect: 'none',
+            fontWeight: 600,
+          }}
+        >
+          Morix
+        </span>
+
+        {/* Contrôles de mode de fenêtre (interactifs, sans drag, angles droits) */}
+        <div
+          className="window-no-drag"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '2px',
+            backgroundColor: 'rgba(255, 255, 255, 0.04)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            padding: '2px',
+            borderRadius: 0,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => handleSetWindowMode('mini')}
+            title="Mode Mini Widget (220x220)"
+            aria-label="Mode Mini"
+            style={{
+              width: windowMode === 'mini' ? '18px' : '22px',
+              height: windowMode === 'mini' ? '18px' : '22px',
+              background: windowMode === 'mini' ? 'rgba(99, 102, 241, 0.45)' : 'transparent',
+              border: windowMode === 'mini' ? '1px solid rgba(99, 102, 241, 0.8)' : '1px solid transparent',
+              borderRadius: 0,
+              color: windowMode === 'mini' ? '#FFFFFF' : 'rgba(255, 255, 255, 0.45)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              transition: 'all 150ms ease',
+            }}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <rect x="7" y="7" width="10" height="10" />
+            </svg>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleSetWindowMode('standard')}
+            title="Mode Standard (800x600)"
+            aria-label="Mode Standard"
+            style={{
+              width: windowMode === 'mini' ? '18px' : '22px',
+              height: windowMode === 'mini' ? '18px' : '22px',
+              background: windowMode === 'standard' ? 'rgba(99, 102, 241, 0.45)' : 'transparent',
+              border: windowMode === 'standard' ? '1px solid rgba(99, 102, 241, 0.8)' : '1px solid transparent',
+              borderRadius: 0,
+              color: windowMode === 'standard' ? '#FFFFFF' : 'rgba(255, 255, 255, 0.45)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              transition: 'all 150ms ease',
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="18" height="18" />
+            </svg>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleSetWindowMode('sidebar')}
+            title="Mode Barre Latérale (380px)"
+            aria-label="Mode Barre Latérale"
+            style={{
+              width: windowMode === 'mini' ? '18px' : '22px',
+              height: windowMode === 'mini' ? '18px' : '22px',
+              background: windowMode === 'sidebar' ? 'rgba(99, 102, 241, 0.45)' : 'transparent',
+              border: windowMode === 'sidebar' ? '1px solid rgba(99, 102, 241, 0.8)' : '1px solid transparent',
+              borderRadius: 0,
+              color: windowMode === 'sidebar' ? '#FFFFFF' : 'rgba(255, 255, 255, 0.45)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              transition: 'all 150ms ease',
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="18" height="18" />
+              <line x1="15" y1="3" x2="15" y2="21" />
+            </svg>
+          </button>
+        </div>
+      </div>
 
       {/* Central 3D Particle Orb (Piloted strictly by real-time audio stream) */}
       <div id="orb-container">
@@ -593,11 +830,13 @@ export default function App() {
       </div>
 
       {/* Visual Canvas pour l'autonomie visuelle en direct de Morix */}
-      <VisualCanvas
-        data={visualCanvasData}
-        onClose={() => setVisualCanvasData(null)}
-        isOrbSpeaking={effectiveOrbState === 'speaking'}
-      />
+      {windowMode !== 'mini' && (
+        <VisualCanvas
+          data={visualCanvasData}
+          onClose={() => setVisualCanvasData(null)}
+          isOrbSpeaking={effectiveOrbState === 'speaking'}
+        />
+      )}
 
       {/* Les fenêtres Dashboard sont maintenant de vraies fenêtres Electron natives gérées par le main process */}
 
@@ -627,11 +866,11 @@ export default function App() {
         aria-expanded={isSettingsOpen}
         style={{
           position: 'fixed',
-          bottom: '24px',
-          left: '24px',
+          bottom: windowMode === 'mini' ? '8px' : '24px',
+          left: windowMode === 'mini' ? '8px' : '24px',
           zIndex: 40,
-          width: '36px',
-          height: '36px',
+          width: windowMode === 'mini' ? '28px' : '36px',
+          height: windowMode === 'mini' ? '28px' : '36px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -718,14 +957,16 @@ export default function App() {
         className="window-no-drag"
         style={{
           position: 'fixed',
-          bottom: '36px',
+          bottom: windowMode === 'mini' ? '8px' : '36px',
           left: '50%',
-          transform: 'translateX(-50%)',
+          transform: windowMode === 'mini' ? 'translateX(-50%) scale(0.8)' : 'translateX(-50%)',
+          transformOrigin: 'bottom center',
           zIndex: 50,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           gap: '8px',
+          transition: 'bottom 250ms ease, transform 250ms ease',
         }}
       >
         <StatusPill
@@ -1145,6 +1386,178 @@ export default function App() {
               <circle cx="12" cy="12" r="10" />
               <line x1="2" y1="12" x2="22" y2="12" />
               <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+          </button>
+
+          {/* Test 6 : Desktop Vision (outil analyser_ecran) */}
+          <button
+            type="button"
+            onClick={() => {
+              liveAudioRef.current?.sendTextMessage(
+                "Morix, regarde mon écran et décris brièvement ce que tu vois."
+              );
+            }}
+            title="Test outil : Analyse Vision Écran (analyser_ecran)"
+            aria-label="Test outil : Vision Écran"
+            style={{
+              width: '28px',
+              height: '28px',
+              padding: 0,
+              borderRadius: '9999px',
+              cursor: 'pointer',
+              border: '1px solid rgba(14, 165, 233, 0.35)',
+              backgroundColor: 'rgba(14, 165, 233, 0.12)',
+              color: '#38BDF8',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background-color 150ms ease, transform 150ms ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(14, 165, 233, 0.25)';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(14, 165, 233, 0.12)';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+
+          {/* Test 7 : Graphique & Diagramme Visuel */}
+          <button
+            type="button"
+            onClick={() => {
+              setVisualCanvasData({
+                type: 'diagramme',
+                titre: 'Activité Système & Ressources',
+                items: ['CPU|45%', 'Mémoire|68%', 'Réseau|82%', 'Disque|34%'],
+                position: 'droite',
+                duree: 'moyen',
+              });
+            }}
+            title="Test visuel : Diagramme en barres synchronisé"
+            aria-label="Test visuel : Diagramme"
+            style={{
+              width: '28px',
+              height: '28px',
+              padding: 0,
+              borderRadius: '9999px',
+              cursor: 'pointer',
+              border: '1px solid rgba(139, 92, 246, 0.35)',
+              backgroundColor: 'rgba(139, 92, 246, 0.12)',
+              color: '#C4B5FD',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background-color 150ms ease, transform 150ms ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(139, 92, 246, 0.25)';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(139, 92, 246, 0.12)';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <line x1="18" y1="20" x2="18" y2="10" />
+              <line x1="12" y1="20" x2="12" y2="4" />
+              <line x1="6" y1="20" x2="6" y2="14" />
+            </svg>
+          </button>
+
+          {/* Test 8 : Métriques / KPIs */}
+          <button
+            type="button"
+            onClick={() => {
+              setVisualCanvasData({
+                type: 'metriques',
+                titre: 'KPIs & Performances IA',
+                items: [
+                  'Latence Audio|18ms|-4ms|bonne',
+                  'Requêtes Live|1420|+12%|hausse',
+                  'Disponibilité|99.9%|Stable|bonne',
+                  'Tokens/s|84|+8|hausse',
+                ],
+                position: 'droite',
+                duree: 'moyen',
+              });
+            }}
+            title="Test visuel : Cartes métriques et KPIs"
+            aria-label="Test visuel : Métriques"
+            style={{
+              width: '28px',
+              height: '28px',
+              padding: 0,
+              borderRadius: '9999px',
+              cursor: 'pointer',
+              border: '1px solid rgba(16, 185, 129, 0.35)',
+              backgroundColor: 'rgba(16, 185, 129, 0.12)',
+              color: '#6EE7B7',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background-color 150ms ease, transform 150ms ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.25)';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.12)';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+            </svg>
+          </button>
+
+          {/* Test 9 : Rappel & Alerte Proactive Immédiate (5 secondes) */}
+          <button
+            type="button"
+            onClick={async () => {
+              if (window.morixAPI?.scheduleReminder) {
+                await window.morixAPI.scheduleReminder(5, "Temps de concentration écoulé. Pensez à faire une courte pause !");
+              }
+            }}
+            title="Test proactivité : Rappel autonome dans 5 secondes"
+            aria-label="Test proactivité : Rappel"
+            style={{
+              width: '28px',
+              height: '28px',
+              padding: 0,
+              borderRadius: '9999px',
+              cursor: 'pointer',
+              border: '1px solid rgba(245, 158, 11, 0.35)',
+              backgroundColor: 'rgba(245, 158, 11, 0.12)',
+              color: '#FDE68A',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background-color 150ms ease, transform 150ms ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(245, 158, 11, 0.25)';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(245, 158, 11, 0.12)';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
             </svg>
           </button>
 

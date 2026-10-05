@@ -86,6 +86,42 @@ contextBridge.exposeInMainWorld('morixAPI', {
   /** Supprime la clé API enregistrée. */
   clearApiKey: () => ipcRenderer.invoke('config:clear-api-key'),
 
+  // ── Desktop Vision & Pilotage Système Autonome ───────────────────────────
+  /** Capture l'écran principal en base64 pour analyse visuelle multimodale. */
+  captureScreen: () => ipcRenderer.invoke('screen:capture-active'),
+
+  /** Ouvre une application installée ou une URL dans le navigateur. */
+  openApplication: (nomOuUrl) => ipcRenderer.invoke('system:open-app', nomOuUrl),
+
+  /** Ouvre un dossier dans l'explorateur de fichiers. */
+  openFolder: (chemin) => ipcRenderer.invoke('system:open-folder', chemin),
+
+  /** Exécute une commande shell/powershell système. */
+  executeCommand: (commande) => ipcRenderer.invoke('system:execute-command', commande),
+
+  /** Bascule le mode de la fenêtre ('standard' | 'mini' | 'sidebar'). */
+  setWindowMode: (mode) => ipcRenderer.invoke('window:set-mode', mode),
+
+  /** Programme un rappel autonome. */
+  scheduleReminder: (delaiSecondes, message) => ipcRenderer.invoke('morix:schedule-reminder', { delaiSecondes, message }),
+
+  /** Analyse l'écran actif par vision multimodale avec Gemini. */
+  analyzeScreen: (question) => ipcRenderer.invoke('morix:analyze-screen', question),
+
+  /** Écoute le changement de mode fenêtre ('standard', 'mini', 'sidebar'). */
+  onWindowModeChanged: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('window:mode-changed', handler);
+    return () => ipcRenderer.removeListener('window:mode-changed', handler);
+  },
+
+  /** Écoute les alertes ou événements proactifs déclenchés par Morix. */
+  onProactiveAlert: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('morix:proactive-alert', handler);
+    return () => ipcRenderer.removeListener('morix:proactive-alert', handler);
+  },
+
   // ── Callbacks / Événements reçus du main process ──────────────────────────
   /** Réception des chunks audio de réponse (base64 PCM24k) à jouer. */
   onAudioResponse: (callback) => {
