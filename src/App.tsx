@@ -7,7 +7,6 @@ import { useEffect, useRef, useState } from 'react';
 import ApiKeyModal from './components/ApiKeyModal';
 import DashboardWindow from './components/DashboardWindow';
 import DashboardStandaloneView from './components/DashboardStandaloneView';
-import LiveCaptions from './components/LiveCaptions';
 import ParticleOrb from './components/ParticleOrb';
 import SettingsPanel from './components/SettingsPanel';
 import StatusPill, { StatusPillState } from './components/StatusPill';
@@ -49,8 +48,6 @@ export default function App() {
 
   // Pleine Autonomie Visuelle et Synchronisation Parole / Écran
   const [visualCanvasData, setVisualCanvasData] = useState<VisualCanvasData | null>(null);
-  const [liveTranscript, setLiveTranscript] = useState<string>('');
-  const [isLiveCaptionsVisible, setIsLiveCaptionsVisible] = useState<boolean>(false);
   const [outputAudioIntensity, setOutputAudioIntensity] = useState<number>(0);
 
   // Outils de test développeur masqués par défaut (accessible via raccourci secret Ctrl+Shift+D / Cmd+Shift+D)
@@ -404,11 +401,6 @@ export default function App() {
             setOrbState(newState);
             if (newState !== 'speaking') {
               setOutputAudioIntensity(0);
-              // Fermeture progressive des sous-titres après la fin de la parole
-              setTimeout(() => {
-                setIsLiveCaptionsVisible(false);
-                setLiveTranscript('');
-              }, 2500);
             }
           },
           onVolumeChange: (vol) => {
@@ -416,12 +408,6 @@ export default function App() {
           },
           onOutputAudioIntensity: (intensity) => {
             setOutputAudioIntensity(intensity);
-          },
-          onTranscript: (text, isModel) => {
-            if (isModel) {
-              setLiveTranscript((prev) => prev + text);
-              setIsLiveCaptionsVisible(true);
-            }
           },
           onError: (err) => {
             console.warn('[Morix App] Information flux Live :', err?.message || err);
@@ -558,12 +544,6 @@ export default function App() {
         setVisualCanvasData(e.detail.data);
       } else if (e.detail?.type === 'effacer_ecran') {
         setVisualCanvasData(null);
-      } else if (e.detail?.type === 'captions') {
-        setLiveTranscript(e.detail.text);
-        setIsLiveCaptionsVisible(true);
-      } else if (e.detail?.type === 'clear_captions') {
-        setIsLiveCaptionsVisible(false);
-        setLiveTranscript('');
       }
     };
     window.addEventListener('morix:test-visual', handleTestVisual);
@@ -617,12 +597,6 @@ export default function App() {
         data={visualCanvasData}
         onClose={() => setVisualCanvasData(null)}
         isOrbSpeaking={effectiveOrbState === 'speaking'}
-      />
-
-      {/* Sous-titres live synchronisés avec l'élocution de Morix */}
-      <LiveCaptions
-        text={liveTranscript}
-        isVisible={isLiveCaptionsVisible && (effectiveOrbState === 'speaking' || liveTranscript.length > 0)}
       />
 
       {/* Les fenêtres Dashboard sont maintenant de vraies fenêtres Electron natives gérées par le main process */}
@@ -1471,43 +1445,13 @@ export default function App() {
             123
           </button>
 
-          {/* Test Visuel : Sous-titres live */}
-          <button
-            type="button"
-            onClick={() => {
-              setLiveTranscript("Voici un exemple de sous-titres générés en direct pendant l'élocution de Morix.");
-              setIsLiveCaptionsVisible(true);
-            }}
-            title="Test Visuel : simuler sous-titres live"
-            aria-label="Tester sous-titres"
-            style={{
-              background: 'rgba(236, 72, 153, 0.22)',
-              border: '1px solid rgba(236, 72, 153, 0.55)',
-              color: '#F472B6',
-              width: '26px',
-              height: '26px',
-              padding: 0,
-              borderRadius: '9999px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '11px',
-              fontWeight: 600,
-            }}
-          >
-            CC
-          </button>
-
           {/* Test Visuel : Effacer l'écran */}
           <button
             type="button"
             onClick={() => {
               setVisualCanvasData(null);
-              setIsLiveCaptionsVisible(false);
-              setLiveTranscript('');
             }}
-            title="Test Visuel : effacer écran et sous-titres"
+            title="Test Visuel : effacer écran"
             aria-label="Effacer écran test"
             style={{
               background: 'rgba(255, 255, 255, 0.1)',

@@ -1814,29 +1814,8 @@ async function createWindow() {
           fs.writeFileSync(screenshotEtapes, imgEtapes.toPNG());
           console.log('[Test-Visual] Capture écran étapes sauvegardée :', screenshotEtapes);
 
-          // 4. Test des sous-titres live (LiveCaptions)
-          console.log('[Test-Visual] 4. Test d\'affichage des sous-titres live...');
-          await mainWindow.webContents.executeJavaScript(`
-            window.dispatchEvent(new CustomEvent('morix:test-visual', {
-              detail: { type: 'effacer_ecran' }
-            }));
-            window.dispatchEvent(new CustomEvent('morix:test-visual', {
-              detail: {
-                type: 'captions',
-                text: "Voici un exemple de sous-titres générés en direct pendant l'élocution de Morix.",
-              }
-            }));
-          `);
-
-          await new Promise((r) => setTimeout(r, 600));
-
-          const screenshotCaptions = path.join(brainDir, 'screenshot_live_captions.png');
-          const imgCaptions = await mainWindow.webContents.capturePage();
-          fs.writeFileSync(screenshotCaptions, imgCaptions.toPNG());
-          console.log('[Test-Visual] Capture sous-titres live sauvegardée :', screenshotCaptions);
-
-          // 5. Test d'effacement de l'écran (effacer_ecran)
-          console.log('[Test-Visual] 5. Test d\'effacement de l\'écran...');
+          // 4. Test d'effacement de l'écran (effacer_ecran)
+          console.log('[Test-Visual] 4. Test d\'effacement de l\'écran...');
           await mainWindow.webContents.executeJavaScript(`
             window.dispatchEvent(new CustomEvent('morix:test-visual', {
               detail: {
